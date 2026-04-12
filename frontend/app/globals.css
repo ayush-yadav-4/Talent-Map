@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+/* Native selects/options often ignore utility bg until forced — keeps dark forms readable */
+html.dark select,
+html.dark select option {
+  background-color: #1c1f26;
+  color: #e7e9ea;
+}
+
+html.dark textarea,
+html.dark input:where(
+    [type="text"],
+    [type="email"],
+    [type="password"],
+    [type="tel"],
+    [type="number"],
+    [type="url"],
+    [type="search"]
+  ) {
+  background-color: #1c1f26;
+  color: #e7e9ea;
+}
+
+body {
+  @apply min-h-screen bg-slate-50 text-slate-900 antialiased transition-colors duration-200 dark:bg-tw-bg dark:text-tw-text;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}

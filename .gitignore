@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.Python/
+
+# Env & secrets
+.env
+.env.local
+.env.*.local
+*.pem
+secrets/
+
+# Build / cache
+.next/
+out/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage/
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Data & indexes (large / local)
+backend/data/*.index
+backend/data/*_skills.json
+
+# Logs
+*.log
