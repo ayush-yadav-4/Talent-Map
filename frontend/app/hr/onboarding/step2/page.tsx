@@ -36,11 +36,31 @@ export default function HrOnboardingStep2Page() {
   }, [orgId]);
 
   const presets = useMemo(() => DEPARTMENT_PRESETS[sector] ?? DEPARTMENT_PRESETS.corporate, [sector]);
+  const selectedDomains = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          rows
+            .map((row) => row.name.trim())
+            .filter((name) => name.length >= 2)
+            .map((name) => name.toLowerCase()),
+        ),
+      ).map((name) => rows.find((row) => row.name.trim().toLowerCase() === name)?.name.trim() ?? name),
+    [rows],
+  );
+  const departmentOptions = useMemo(
+    () => Array.from(new Set([...presets, ...selectedDomains])).sort((a, b) => a.localeCompare(b)),
+    [presets, selectedDomains],
+  );
 
   const addPreset = useCallback((name: string) => {
     const code = suggestDeptCode(name);
     setRows((r) => [...r, { name, code, description: "", color: "" }]);
     if (code) toast.success(`Added “${name}” (${code})`);
+  }, []);
+
+  const updateRow = useCallback((idx: number, patch: Partial<DeptRow>) => {
+    setRows((existing) => existing.map((item, itemIdx) => (itemIdx === idx ? { ...item, ...patch } : item)));
   }, []);
 
   const addAllPresets = useCallback(() => {
@@ -132,6 +152,23 @@ export default function HrOnboardingStep2Page() {
       </div>
 
       <div className="space-y-4">
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-tw-border dark:bg-tw-card">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-tw-muted">Departments</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {selectedDomains.map((name) => (
+              <span
+                key={name}
+                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 dark:border-tw-border dark:bg-tw-raised dark:text-tw-text"
+              >
+                {name}
+              </span>
+            ))}
+            {selectedDomains.length === 0 && (
+              <span className="text-xs text-slate-500 dark:text-tw-muted">No departments added yet.</span>
+            )}
+          </div>
+        </div>
+
         {rows.map((row, idx) => (
           <div key={idx} className={cn(cardSurfaceClass, "grid gap-3 p-4 sm:grid-cols-2")}>
             <div className="flex items-start justify-between gap-2 sm:col-span-2">
@@ -150,12 +187,22 @@ export default function HrOnboardingStep2Page() {
               )}
             </div>
             <div>
-              <label className={formLabelClass}>Name *</label>
+              <label className={formLabelClass}>Department / domain *</label>
               <input
                 className={formInputClass}
                 value={row.name}
-                onChange={(e) => setRows((r) => r.map((x, i) => (i === idx ? { ...x, name: e.target.value } : x)))}
+                list={`department-options-${idx}`}
+                placeholder="Search or type a department"
+                onChange={(e) => updateRow(idx, { name: e.target.value })}
               />
+              <datalist id={`department-options-${idx}`}>
+                {departmentOptions.map((option) => (
+                  <option key={option} value={option} />
+                ))}
+              </datalist>
+              <p className="mt-1 text-xs text-slate-500 dark:text-tw-muted">
+                Search in the dropdown or type a custom department.
+              </p>
             </div>
             <div>
               <label className={formLabelClass}>Code (optional, max 10)</label>
@@ -163,7 +210,7 @@ export default function HrOnboardingStep2Page() {
                 className={formInputClass}
                 maxLength={10}
                 value={row.code}
-                onChange={(e) => setRows((r) => r.map((x, i) => (i === idx ? { ...x, code: e.target.value } : x)))}
+                onChange={(e) => updateRow(idx, { code: e.target.value })}
               />
             </div>
             <div>
@@ -173,7 +220,7 @@ export default function HrOnboardingStep2Page() {
                 placeholder="#3366CC"
                 maxLength={20}
                 value={row.color}
-                onChange={(e) => setRows((r) => r.map((x, i) => (i === idx ? { ...x, color: e.target.value } : x)))}
+                onChange={(e) => updateRow(idx, { color: e.target.value })}
               />
             </div>
             <div className="sm:col-span-2">
@@ -183,7 +230,7 @@ export default function HrOnboardingStep2Page() {
                 rows={2}
                 maxLength={200}
                 value={row.description}
-                onChange={(e) => setRows((r) => r.map((x, i) => (i === idx ? { ...x, description: e.target.value } : x)))}
+                onChange={(e) => updateRow(idx, { description: e.target.value })}
               />
             </div>
           </div>

@@ -11,9 +11,11 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
-import { reportApi } from "@/lib/api";
+import { orgApi, readStoredUser, reportApi } from "@/lib/api";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { cardSurfaceClass } from "@/lib/ui";
+import { RoleIntelligenceAgent } from "@/components/hr/RoleIntelligenceAgent";
+import { MatchingDashboard } from "@/components/hr/MatchingDashboard";
 import { cn } from "@/lib/utils";
 
 type HrDashboard = {
@@ -35,6 +37,8 @@ type HrDashboard = {
 
 export default function HrDashboardPage() {
   const { ready } = useRequireAuth(["org_admin", "hr_manager", "manager"]);
+  const user = readStoredUser();
+  const orgId = user?.org_id;
   const { data, isLoading, error } = useQuery({
     queryKey: ["hr-dashboard"],
     queryFn: async () => {
@@ -42,6 +46,14 @@ export default function HrDashboardPage() {
       return d as HrDashboard;
     },
     enabled: ready,
+  });
+  const { data: employees } = useQuery({
+    queryKey: ["dashboard-employees"],
+    queryFn: async () => {
+      const { data: rows } = await orgApi.getStructure(orgId ?? "");
+      return rows.departments.flatMap((item) => item.employees).slice(0, 6);
+    },
+    enabled: ready && Boolean(orgId),
   });
 
   if (!ready) return null;
@@ -116,6 +128,10 @@ export default function HrDashboardPage() {
         ))}
       </div>
 
+      <RoleIntelligenceAgent />
+
+      <MatchingDashboard />
+
       <div className="grid gap-6 lg:grid-cols-5">
         <div className={cn(cardSurfaceClass, "p-4 shadow-sm lg:col-span-3")}>
           <h2 className="text-sm font-semibold text-slate-900 dark:text-tw-text">Capability snapshot</h2>
@@ -144,6 +160,22 @@ export default function HrDashboardPage() {
             Pending assessments: <span className="font-bold">{data?.counts?.assessments_pending ?? 0}</span>
           </div>
         </div>
+      </div>
+
+      <div className={cn(cardSurfaceClass, "space-y-2 p-5 shadow-sm")}>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-tw-text">Recently added employees</h2>
+          <Link href="/hr/employees" className="text-xs font-semibold text-brand-700 hover:underline dark:text-tw-blue">
+            Manage employees
+          </Link>
+        </div>
+        {(employees ?? []).map((employee) => (
+          <div key={employee.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-tw-border dark:bg-tw-raised">
+            <p className="text-sm font-medium text-slate-900 dark:text-tw-text">{employee.full_name}</p>
+            <p className="text-xs text-slate-500 dark:text-tw-muted">{employee.email}</p>
+          </div>
+        ))}
+        {!employees?.length && <p className="text-xs text-slate-500 dark:text-tw-muted">No employees added yet.</p>}
       </div>
     </div>
   );
