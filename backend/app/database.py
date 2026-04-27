@@ -1,9 +1,13 @@
 from collections.abc import AsyncGenerator
+import logging
 
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def _async_database_url(url: str) -> str:
@@ -40,6 +44,10 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
             await session.commit()
+        except HTTPException:
+            await session.rollback()
+            raise
         except Exception:
+            logger.exception("database.session.error transaction rolled back")
             await session.rollback()
             raise

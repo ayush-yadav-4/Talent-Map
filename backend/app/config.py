@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     app_name: str = "Talent Map"
     app_env: str = "development"
     app_secret_key: str = "dev-change-me-in-production-min-32-chars"
-    app_allowed_origins: str = "http://localhost:3000"
+    app_allowed_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002"
 
     database_url: str
     database_pool_size: int = 5
@@ -23,7 +23,18 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = 60
     jwt_refresh_token_expire_days: int = 7
 
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_use_tls: bool = True
+    email_from: str = "noreply@talentmap.local"
+    app_login_url: str = "http://localhost:3001/login"
+
     sentry_dsn: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+    gemini_model: str = "gemini-1.5-flash-latest"
+    mongodb_url: Optional[str] = None
 
 
 @lru_cache

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 
@@ -38,6 +38,12 @@ class RoleSetupItem(BaseModel):
     dept_id: Optional[UUID] = None
 
 
+class RoleProfileManage(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    seniority_level: str = Field(default="mid_level", min_length=1, max_length=50)
+    dept_id: Optional[UUID] = None
+
+
 class OrgSetupStep3(BaseModel):
     roles: list[RoleSetupItem] = Field(default_factory=list)
     role_titles: list[str] = Field(default_factory=list)
@@ -71,7 +77,32 @@ class InviteEmployeeRequest(BaseModel):
     email: EmailStr
     full_name: str = Field(..., min_length=2, max_length=255)
     job_title: Optional[str] = Field(None, max_length=255)
+    notes: Optional[str] = Field(None, max_length=1000)
     role: str = Field(default="employee", max_length=30)
+
+
+class ProjectCreate(BaseModel):
+    name: str = Field(..., min_length=2, max_length=255)
+    code: Optional[str] = Field(None, max_length=100)
+    client_name: Optional[str] = Field(None, max_length=255)
+    description: Optional[str] = Field(None, max_length=4000)
+    project_type: Optional[str] = Field(None, max_length=80)
+    status: str = Field(default="planning", max_length=50)
+    priority: Optional[str] = Field(None, max_length=50)
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    budget: Optional[float] = None
+    currency: Optional[str] = Field(None, max_length=10)
+    delivery_model: Optional[str] = Field(None, max_length=80)
+    tech_stack: Optional[str] = Field(None, max_length=2000)
+    jd_id: Optional[UUID] = None
+    deadline: Optional[date] = None
+    delivery_notes: Optional[str] = None
+
+
+class ProjectAssignRequest(BaseModel):
+    employee_id: UUID
+    position: str = Field(default="member", min_length=1, max_length=80)
 
 
 class OrgResponse(BaseModel):
@@ -92,3 +123,11 @@ class OrgResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class OrganizationUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=2, max_length=255)
+    domain: Optional[str] = Field(None, max_length=255)
+    country: Optional[str] = Field(None, max_length=10)
+    state: Optional[str] = Field(None, max_length=100)
+    sub_sector: Optional[str] = Field(None, max_length=100)

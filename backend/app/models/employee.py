@@ -67,6 +67,7 @@ class Employee(Base):
 
     resume_url: Mapped[str | None] = mapped_column(Text)
     resume_parsed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[str | None] = mapped_column(Text)
 
     consent_github: Mapped[bool] = mapped_column(Boolean, server_default="false")
     consent_email: Mapped[bool] = mapped_column(Boolean, server_default="false")
@@ -74,11 +75,13 @@ class Employee(Base):
     consent_slack: Mapped[bool] = mapped_column(Boolean, server_default="false")
     consent_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    project_status: Mapped[str] = mapped_column(String(30), server_default="bench")
     employment_status: Mapped[str] = mapped_column(String(20), server_default="active")
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     onboarded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_ai_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

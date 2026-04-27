@@ -57,13 +57,17 @@ def _to_employee_response(emp: Employee) -> EmployeeResponse:
         years_of_experience=emp.years_of_experience,
         location_city=emp.location_city,
         location_state=emp.location_state,
+        project_status=emp.project_status or "bench",
+        invitation_status="active",
         employment_status=emp.employment_status or "active",
         is_active=bool(emp.is_active),
         resume_url=emp.resume_url,
+        notes=emp.notes,
         created_at=emp.created_at,
     )
 
 
+@router.get("", response_model=list[EmployeeResponse], include_in_schema=False)
 @router.get("/", response_model=list[EmployeeResponse])
 async def list_employees(
     skip: int = 0,
@@ -74,7 +78,11 @@ async def list_employees(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[EmployeeResponse]:
-    query = select(Employee).where(Employee.org_id == current_user.org_id)
+    query = (
+        select(Employee, User.last_login_at)
+        .outerjoin(User, User.employee_id == Employee.id)
+        .where(Employee.org_id == current_user.org_id)
+    )
     if dept_id:
         try:
             query = query.where(Employee.dept_id == UUID(dept_id))
@@ -87,16 +95,28 @@ async def list_employees(
         query = query.where(or_(Employee.full_name.ilike(q), Employee.email.ilike(q)))
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)
-    return [_to_employee_response(e) for e in result.scalars().all()]
+    rows = result.all()
+    payload: list[EmployeeResponse] = []
+    for employee, last_login_at in rows:
+        invitation_status = "active"
+        if employee.invited_at and last_login_at is None:
+            invitation_status = "invited"
+        mapped = _to_employee_response(employee)
+        mapped.invitation_status = invitation_status
+        payload.append(mapped)
+    return payload
 
 
+@router.post("", response_model=EmployeeResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 @router.post("/", response_model=EmployeeResponse, status_code=status.HTTP_201_CREATED)
 async def create_employee(
     data: EmployeeCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles("org_admin", "hr_manager")),
 ) -> EmployeeResponse:
-    emp = Employee(id=uuid.uuid4(), org_id=current_user.org_id, **data.model_dump())
+    payload = data.model_dump()
+    payload.setdefault("project_status", "bench")
+    emp = Employee(id=uuid.uuid4(), org_id=current_user.org_id, **payload)
     db.add(emp)
     await db.flush()
     await db.refresh(emp)
@@ -173,6 +193,7 @@ async def get_employee_profile(
                 certification_name=score.certification_name,
                 certification_expiry=score.certification_expiry,
                 is_expired=bool(score.is_expired),
+                years_of_experience=score.years_of_experience,
                 last_computed_at=score.last_computed_at or emp.updated_at,
             )
         )
@@ -215,6 +236,114 @@ async def get_employee_profile(
         critical_gaps=critical_gaps,
         expiring_certs=expiring_certs,
     )
+
+@router.get("/{employee_id}/full-profile", response_model=dict)
+async def get_full_employee_profile(
+    employee_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("org_admin", "hr_manager")),
+):
+    eid = _emp_uuid(employee_id)
+    # Basic info
+    emp_result = await db.execute(select(Employee).where(Employee.id == eid))
+    emp = emp_result.scalar_one_or_none()
+    if not emp or emp.org_id != current_user.org_id:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    # Projects
+    from app.models.project import Project, ProjectAssignment
+    proj_res = await db.execute(
+        select(Project, ProjectAssignment.position)
+        .join(ProjectAssignment, Project.id == ProjectAssignment.project_id)
+        .where(ProjectAssignment.employee_id == eid)
+    )
+    projects = []
+    for p, pos in proj_res.all():
+        projects.append({
+            "id": p.id,
+            "name": p.name,
+            "status": p.status,
+            "position": pos,
+            "deadline": p.deadline
+        })
+
+    # Assessments (from analytics model)
+    from app.models.analytics import AssessmentSession, Assessment
+    ass_res = await db.execute(
+        select(AssessmentSession, Assessment.title)
+        .join(Assessment, Assessment.id == AssessmentSession.assessment_id)
+        .where(AssessmentSession.employee_id == eid)
+        .order_by(AssessmentSession.completed_at.desc().nullslast(), AssessmentSession.started_at.desc())
+        .limit(20)
+    )
+    assessments = []
+    for ass, assessment_title in ass_res.all():
+        assessments.append({
+            "id": ass.id,
+            "assessment_title": assessment_title,
+            "score": round(float(ass.final_proficiency or 0.0), 2),
+            "status": ass.status,
+            "questions_served": ass.questions_served or 0,
+            "completed_at": ass.completed_at or ass.started_at,
+        })
+
+    # Saved JD Gaps
+    from app.models.job_description import JDGapAnalysis, JobDescription
+    gap_res = await db.execute(
+        select(JDGapAnalysis, JobDescription.title)
+        .join(JobDescription, JDGapAnalysis.jd_id == JobDescription.id)
+        .where(JDGapAnalysis.employee_id == eid)
+    )
+    saved_gaps = []
+    for g, title in gap_res.all():
+        saved_gaps.append({
+            "jd_title": title,
+            "fit_score": g.fit_score,
+            "results": g.analysis_results,
+            "created_at": g.created_at
+        })
+
+    # Skills
+    scores_result = await db.execute(
+        select(EmployeeSkillScore, Skill)
+        .join(Skill, EmployeeSkillScore.skill_id == Skill.id)
+        .where(EmployeeSkillScore.employee_id == eid)
+    )
+    skills = []
+    for score, skill in scores_result.all():
+        skills.append({
+            "name": skill.canonical_name,
+            "score": score.proficiency_score,
+            "domain": skill.domain
+        })
+
+    # Open skill gaps from profile engine
+    gap_profile_res = await db.execute(
+        select(SkillGap, Skill)
+        .join(Skill, SkillGap.skill_id == Skill.id)
+        .where(and_(SkillGap.employee_id == eid, SkillGap.status == "open"))
+        .order_by(desc(SkillGap.priority_score).nulls_last())
+        .limit(20)
+    )
+    skill_gaps = []
+    for gap, skill in gap_profile_res.all():
+        skill_gaps.append({
+            "skill_name": skill.canonical_name,
+            "required_proficiency": float(gap.required_proficiency),
+            "current_proficiency": float(gap.current_proficiency or 0.0),
+            "gap_magnitude": float(gap.gap_magnitude),
+            "criticality": gap.criticality or "important",
+            "priority_score": float(gap.priority_score or 0.0),
+        })
+
+    return {
+        "employee": _to_employee_response(emp),
+        "projects": projects,
+        "assessments": assessments,
+        "skill_gaps": skill_gaps,
+        "saved_gaps": saved_gaps,
+        "skills": skills
+    }
 
 
 @router.put("/{employee_id}/onboarding/step1", response_model=dict)
@@ -354,3 +483,43 @@ async def submit_self_rating(
             score.self_rating_note = rating.get("note")
             score.self_rating_date = datetime.now(timezone.utc)
     return {"message": "Ratings saved"}
+
+
+@router.delete("/{employee_id}", response_model=dict)
+async def delete_employee(
+    employee_id: str,
+    force: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("org_admin", "hr_manager")),
+) -> dict:
+    eid = _emp_uuid(employee_id)
+    emp_result = await db.execute(select(Employee).where(Employee.id == eid))
+    emp = emp_result.scalar_one_or_none()
+    if not emp or emp.org_id != current_user.org_id:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    # Check for project assignments
+    from app.models.project import ProjectAssignment
+    from sqlalchemy import delete, func
+
+    assignment_count_res = await db.execute(
+        select(func.count(ProjectAssignment.id)).where(ProjectAssignment.employee_id == eid)
+    )
+    assignment_count = assignment_count_res.scalar_one()
+
+    if assignment_count > 0 and not force:
+        return {
+            "success": False,
+            "warning": "assigned_to_projects",
+            "assignment_count": assignment_count,
+            "message": f"Employee is assigned to {assignment_count} projects. Remove from projects first?",
+        }
+
+    # Delete User first
+    await db.execute(delete(User).where(User.employee_id == eid))
+
+    # Delete Employee
+    await db.delete(emp)
+    await db.commit()
+
+    return {"success": True, "deleted": str(eid)}

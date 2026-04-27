@@ -40,3 +40,4 @@ class Organization(Base):
 
     departments = relationship("Department", back_populates="organization", cascade="all, delete-orphan")
     employees = relationship("Employee", back_populates="organization")
+    projects = relationship("Project", cascade="all, delete-orphan")

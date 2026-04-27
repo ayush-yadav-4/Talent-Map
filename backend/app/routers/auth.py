@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -13,7 +15,7 @@ from app.deps import get_current_user
 from app.models.employee import Employee
 from app.models.organization import Organization
 from app.models.user import User
-from app.schemas.auth import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse, UserPublic
+from app.schemas.auth import ChangePasswordRequest, LoginRequest, RefreshRequest, RegisterRequest, TokenResponse, UserPublic
 from app.utils.security import (
     create_access_token,
     create_refresh_token,
@@ -24,6 +26,7 @@ from app.utils.security import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _max_employees_for_range(r: str | None) -> int:
@@ -47,76 +50,93 @@ def _user_public(user: User) -> UserPublic:
         employee_id=user.employee_id,
         onboarding_completed=bool(user.onboarding_completed),
         onboarding_step=int(user.onboarding_step or 1),
+        must_change_password=bool(user.must_change_password),
     )
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register_org_admin(payload: RegisterRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+    started_at = time.perf_counter()
     email_norm = str(payload.admin_email).lower()
-    existing = await db.execute(select(User).where(User.email == email_norm))
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+    org_name = payload.organization_name.strip()
+    logger.info("auth.register.start email=%s org_name=%s", email_norm, org_name)
+    try:
+        existing = await db.execute(select(User).where(User.email == email_norm))
+        if existing.scalar_one_or_none():
+            logger.info("auth.register.conflict email=%s", email_norm)
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
-    settings: dict = {}
-    if payload.primary_use_cases:
-        settings["primary_use_cases"] = payload.primary_use_cases
-    primary_blob: str | None = None
-    if payload.primary_use_cases:
-        primary_blob = json.dumps({"primary_use_cases": payload.primary_use_cases})
-    elif payload.primary_use_case:
-        primary_blob = payload.primary_use_case
+        settings: dict = {}
+        if payload.primary_use_cases:
+            settings["primary_use_cases"] = payload.primary_use_cases
+        primary_blob: str | None = None
+        if payload.primary_use_cases:
+            primary_blob = json.dumps({"primary_use_cases": payload.primary_use_cases})
+        elif payload.primary_use_case:
+            primary_blob = payload.primary_use_case
 
-    org = Organization(
-        name=payload.organization_name.strip(),
-        sector=payload.sector.strip().lower(),
-        sub_sector=payload.sub_sector.strip() if payload.sub_sector else None,
-        country=(payload.country or "IN").strip()[:10],
-        state=payload.state.strip() if payload.state else None,
-        domain=payload.domain.strip() if payload.domain else None,
-        contact_name=payload.admin_full_name.strip(),
-        contact_phone=payload.admin_phone.strip() if payload.admin_phone else None,
-        contact_designation=payload.admin_designation.strip() if payload.admin_designation else None,
-        employee_count_range=payload.employee_count_range,
-        primary_use_case=primary_blob,
-        max_employees=_max_employees_for_range(payload.employee_count_range),
-        settings=settings,
-        onboarding_step=2,
-    )
-    db.add(org)
-    await db.flush()
+        org = Organization(
+            name=org_name,
+            sector=payload.sector.strip().lower(),
+            sub_sector=payload.sub_sector.strip() if payload.sub_sector else None,
+            country=(payload.country or "IN").strip()[:10],
+            state=payload.state.strip() if payload.state else None,
+            domain=payload.domain.strip() if payload.domain else None,
+            contact_name=payload.admin_full_name.strip(),
+            contact_phone=payload.admin_phone.strip() if payload.admin_phone else None,
+            contact_designation=payload.admin_designation.strip() if payload.admin_designation else None,
+            employee_count_range=payload.employee_count_range,
+            primary_use_case=primary_blob,
+            max_employees=_max_employees_for_range(payload.employee_count_range),
+            settings=settings,
+            onboarding_step=2,
+        )
+        db.add(org)
+        await db.flush()
+        logger.info("auth.register.org_created org_id=%s email=%s", org.id, email_norm)
 
-    employee = Employee(
-        org_id=org.id,
-        email=email_norm,
-        full_name=payload.admin_full_name.strip(),
-        job_title="Organization Administrator",
-    )
-    db.add(employee)
-    await db.flush()
+        employee = Employee(
+            org_id=org.id,
+            email=email_norm,
+            full_name=payload.admin_full_name.strip(),
+            job_title="Organization Administrator",
+        )
+        db.add(employee)
+        await db.flush()
+        logger.info("auth.register.employee_created employee_id=%s org_id=%s", employee.id, org.id)
 
-    user = User(
-        org_id=org.id,
-        employee_id=employee.id,
-        email=email_norm,
-        hashed_password=hash_password(payload.admin_password),
-        full_name=payload.admin_full_name.strip(),
-        role="org_admin",
-        is_sso=False,
-        onboarding_completed=False,
-        onboarding_step=2,
-    )
-    db.add(user)
-    await db.flush()
+        user = User(
+            org_id=org.id,
+            employee_id=employee.id,
+            email=email_norm,
+            hashed_password=hash_password(payload.admin_password),
+            full_name=payload.admin_full_name.strip(),
+            role="org_admin",
+            is_sso=False,
+            onboarding_completed=False,
+            onboarding_step=2,
+        )
+        db.add(user)
+        await db.flush()
+        logger.info("auth.register.user_created user_id=%s org_id=%s", user.id, org.id)
 
-    access = create_access_token(
-        subject=str(user.id),
-        extra_claims={"org_id": str(org.id), "role": user.role, "email": user.email},
-    )
-    refresh = create_refresh_token(subject=str(user.id), extra_claims={"org_id": str(org.id), "role": user.role})
-    user.refresh_token = refresh
-    await db.refresh(user)
+        access = create_access_token(
+            subject=str(user.id),
+            extra_claims={"org_id": str(org.id), "role": user.role, "email": user.email},
+        )
+        refresh = create_refresh_token(subject=str(user.id), extra_claims={"org_id": str(org.id), "role": user.role})
+        user.refresh_token = refresh
+        await db.flush()
 
-    return TokenResponse(access_token=access, refresh_token=refresh, user=_user_public(user))
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.info("auth.register.success user_id=%s org_id=%s elapsed_ms=%s", user.id, org.id, elapsed_ms)
+        return TokenResponse(access_token=access, refresh_token=refresh, user=_user_public(user))
+    except HTTPException:
+        raise
+    except Exception:
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.exception("auth.register.failed email=%s org_name=%s elapsed_ms=%s", email_norm, org_name, elapsed_ms)
+        raise
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -139,7 +159,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
     )
     user.refresh_token = refresh
     user.last_login_at = datetime.now(timezone.utc)
-    await db.refresh(user)
+    await db.flush()
 
     return TokenResponse(access_token=access, refresh_token=refresh, user=_user_public(user))
 
@@ -166,9 +186,27 @@ async def refresh_token(payload: RefreshRequest, db: AsyncSession = Depends(get_
         extra_claims={"org_id": str(user.org_id), "role": user.role},
     )
     user.refresh_token = new_refresh
-    await db.refresh(user)
+    await db.flush()
 
     return TokenResponse(access_token=access, refresh_token=new_refresh, user=_user_public(user))
+
+
+@router.post("/change-password", response_model=dict)
+async def change_password(
+    payload: ChangePasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    if not user.hashed_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password login is not enabled")
+    if not verify_password(payload.current_password, user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
+
+    user.hashed_password = hash_password(payload.new_password)
+    user.must_change_password = False
+    user.password_changed_at = datetime.now(timezone.utc)
+    await db.flush()
+    return {"message": "Password updated"}
 
 
 @router.get("/me", response_model=UserPublic)

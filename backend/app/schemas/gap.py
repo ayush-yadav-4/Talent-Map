@@ -21,6 +21,7 @@ class SkillScoreResponse(BaseModel):
     certification_name: Optional[str]
     certification_expiry: Optional[date]
     is_expired: bool
+    years_of_experience: Optional[float] = None
     last_computed_at: datetime
 
 

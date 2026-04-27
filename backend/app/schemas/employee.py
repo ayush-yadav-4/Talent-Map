@@ -27,6 +27,7 @@ class EmployeeCreate(BaseModel):
     gov_employee_id: Optional[str] = None
     clinical_specialization: Optional[str] = None
     registration_number: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class EmployeeUpdate(BaseModel):
@@ -47,6 +48,7 @@ class EmployeeUpdate(BaseModel):
     field_of_study: Optional[str] = None
     institution: Optional[str] = None
     graduation_year: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class EmployeeResponse(BaseModel):
@@ -68,9 +70,12 @@ class EmployeeResponse(BaseModel):
     years_of_experience: Optional[float]
     location_city: Optional[str]
     location_state: Optional[str]
+    project_status: str
+    invitation_status: str = "active"
     employment_status: str
     is_active: bool
     resume_url: Optional[str]
+    notes: Optional[str]
     created_at: datetime
 
     model_config = {"from_attributes": True}

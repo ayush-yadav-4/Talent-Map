@@ -10,8 +10,8 @@ from app.config import settings
 from app.database import Base
 from app.db_url_validate import assert_database_url_configured
 
-# Import models so metadata is populated for autogenerate (future revisions).
-from app.models import analytics, department, employee, organization, user  # noqa: F401
+# Import all models to ensure metadata is populated for autogenerate
+import app.models  # noqa: F401
 
 config = context.config
 
