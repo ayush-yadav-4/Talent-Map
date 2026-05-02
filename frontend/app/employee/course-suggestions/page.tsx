@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BookOpenCheck, ExternalLink, Sparkles } from "lucide-react";
-import { employeeApi, reportApi } from "@/lib/api";
+import { employeeApi, reportApi, agentApi } from "@/lib/api";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { cn } from "@/lib/utils";
 import { cardSurfaceClass } from "@/lib/ui";
@@ -25,93 +25,132 @@ type CourseSuggestion = {
   roleTitle: string;
   priority: "High" | "Medium";
   reason: string;
-  gapCourses: { title: string; provider: string; level: string; url: string }[];
-  upgradeCourses: { title: string; provider: string; level: string; url: string }[];
 };
 
 type BestSkillSuggestion = {
   skillName: string;
   roleTitle: string;
   strengthScore: number;
-  courses: { title: string; provider: string; level: string; url: string }[];
 };
 
-const COURSE_BASE_BY_SKILL_KEYWORD: Array<{
-  keyword: string;
-  courses: { title: string; provider: string; level: string; url: string }[];
-}> = [
-  {
-    keyword: "python",
-    courses: [
-      { title: "Python for Everybody", provider: "Coursera", level: "Beginner", url: "https://www.coursera.org/specializations/python" },
-      { title: "Complete Python Bootcamp", provider: "Udemy", level: "Beginner-Intermediate", url: "https://www.udemy.com/course/complete-python-bootcamp/" },
-    ],
-  },
-  {
-    keyword: "react",
-    courses: [
-      { title: "React - The Complete Guide", provider: "Udemy", level: "Intermediate", url: "https://www.udemy.com/course/react-the-complete-guide-incl-redux/" },
-      { title: "Frontend Developer (React)", provider: "Meta/Coursera", level: "Intermediate", url: "https://www.coursera.org/professional-certificates/meta-front-end-developer" },
-    ],
-  },
-  {
-    keyword: "sql",
-    courses: [
-      { title: "SQL for Data Science", provider: "Coursera", level: "Beginner", url: "https://www.coursera.org/learn/sql-for-data-science" },
-      { title: "The Complete SQL Bootcamp", provider: "Udemy", level: "Beginner-Intermediate", url: "https://www.udemy.com/course/the-complete-sql-bootcamp/" },
-    ],
-  },
-  {
-    keyword: "leadership",
-    courses: [
-      { title: "Leading People and Teams", provider: "Coursera", level: "Intermediate", url: "https://www.coursera.org/specializations/leading-people-teams" },
-      { title: "Developing Your Leadership Style", provider: "LinkedIn Learning", level: "Intermediate", url: "https://www.linkedin.com/learning/" },
-    ],
-  },
-];
+function SkillCourseCard({
+  skillName,
+  roleTitle,
+  priority,
+  reason,
+  isStrength
+}: {
+  skillName: string;
+  roleTitle: string;
+  priority?: "High" | "Medium";
+  reason?: string;
+  isStrength?: boolean;
+}) {
+  const { data: courses, isLoading } = useQuery({
+    queryKey: ["agent-courses", skillName, roleTitle],
+    queryFn: async () => {
+      const { data } = await agentApi.learning.getCourses(skillName, roleTitle);
+      return data;
+    },
+    staleTime: 1000 * 60 * 60, // 1 hour cache
+    refetchOnWindowFocus: false,
+  });
 
-const GENERIC_COURSES = [
-  { title: "Learning How to Learn", provider: "Coursera", level: "All Levels", url: "https://www.coursera.org/learn/learning-how-to-learn" },
-  { title: "Career Essentials in Professional Skills", provider: "LinkedIn/Microsoft", level: "All Levels", url: "https://www.linkedin.com/learning/" },
-];
+  return (
+    <div className="rounded-xl border border-slate-200 dark:border-tw-border bg-slate-50 dark:bg-tw-raised p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900 dark:text-tw-text">{skillName}</p>
+          {reason && <p className="text-xs text-slate-500 dark:text-tw-muted mt-1">{reason}</p>}
+        </div>
+        {priority && (
+          <span
+            className={cn(
+              "inline-flex rounded-full px-2 py-1 text-xs font-semibold",
+              priority === "High"
+                ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+            )}
+          >
+            {priority} Priority
+          </span>
+        )}
+        {isStrength && (
+          <span className="inline-flex rounded-full px-2 py-1 text-xs font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+            Best Skill
+          </span>
+        )}
+      </div>
 
-const UPGRADE_COURSES_BY_SKILL_KEYWORD: Array<{
-  keyword: string;
-  courses: { title: string; provider: string; level: string; url: string }[];
-}> = [
-  {
-    keyword: "python",
-    courses: [
-      { title: "Advanced Python", provider: "LinkedIn Learning", level: "Advanced", url: "https://www.linkedin.com/learning/" },
-      { title: "Python Design Patterns", provider: "Pluralsight", level: "Advanced", url: "https://www.pluralsight.com/" },
-    ],
-  },
-  {
-    keyword: "react",
-    courses: [
-      { title: "Advanced React Patterns", provider: "Frontend Masters", level: "Advanced", url: "https://frontendmasters.com/" },
-      { title: "React Performance", provider: "Udemy", level: "Advanced", url: "https://www.udemy.com/" },
-    ],
-  },
-  {
-    keyword: "sql",
-    courses: [
-      { title: "Advanced SQL for Analytics", provider: "Coursera", level: "Advanced", url: "https://www.coursera.org/" },
-      { title: "SQL Query Optimization", provider: "Udemy", level: "Advanced", url: "https://www.udemy.com/" },
-    ],
-  },
-];
+      {isLoading ? (
+        <div className="mt-4 animate-pulse space-y-4">
+          <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/4"></div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="h-16 bg-slate-200 dark:bg-slate-700 rounded-lg"></div>
+            <div className="h-16 bg-slate-200 dark:bg-slate-700 rounded-lg"></div>
+          </div>
+        </div>
+      ) : courses ? (
+        <>
+          {courses.gap_courses?.length > 0 && (
+            <>
+              <p className="mt-3 text-xs font-semibold text-slate-700 dark:text-tw-text">Gap-Closure Courses</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {courses.gap_courses.map((course: any, i: number) => (
+                  <a
+                    key={i}
+                    href={course.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-lg border border-slate-200 dark:border-tw-border bg-white dark:bg-tw-card p-3 hover:border-brand-300 transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium text-slate-900 dark:text-tw-text">{course.title}</p>
+                        <p className="text-xs text-slate-500 dark:text-tw-muted mt-1">
+                          {course.provider} · {course.level}
+                        </p>
+                      </div>
+                      <ExternalLink className="h-4 w-4 text-slate-400 shrink-0" />
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </>
+          )}
 
-function getCoursesForSkill(skillName: string) {
-  const lower = skillName.toLowerCase();
-  const match = COURSE_BASE_BY_SKILL_KEYWORD.find((entry) => lower.includes(entry.keyword));
-  return match?.courses ?? GENERIC_COURSES;
-}
-
-function getUpgradeCoursesForSkill(skillName: string) {
-  const lower = skillName.toLowerCase();
-  const match = UPGRADE_COURSES_BY_SKILL_KEYWORD.find((entry) => lower.includes(entry.keyword));
-  return match?.courses ?? GENERIC_COURSES;
+          {courses.upgrade_courses?.length > 0 && (
+            <>
+              <p className="mt-3 text-xs font-semibold text-slate-700 dark:text-tw-text">Skill-Upgrade Courses</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {courses.upgrade_courses.map((course: any, i: number) => (
+                  <a
+                    key={i}
+                    href={course.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-lg border border-slate-200 dark:border-tw-border bg-white dark:bg-tw-card p-3 hover:border-brand-300 transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium text-slate-900 dark:text-tw-text">{course.title}</p>
+                        <p className="text-xs text-slate-500 dark:text-tw-muted mt-1">
+                          {course.provider} · {course.level}
+                        </p>
+                      </div>
+                      <ExternalLink className="h-4 w-4 text-slate-400 shrink-0" />
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      ) : (
+        <p className="mt-3 text-sm text-slate-500">Failed to load courses.</p>
+      )}
+    </div>
+  );
 }
 
 export default function EmployeeCourseSuggestionsPage() {
@@ -180,8 +219,6 @@ export default function EmployeeCourseSuggestionsPage() {
         roleTitle,
         priority,
         reason: `This skill has a ${gap.gapMagnitude.toFixed(2)} gap for ${roleTitle}, so improving it should be your top learning priority.`,
-        gapCourses: getCoursesForSkill(gap.skillName),
-        upgradeCourses: getUpgradeCoursesForSkill(gap.skillName),
       };
     });
   }, [data, dashboardData]);
@@ -196,7 +233,6 @@ export default function EmployeeCourseSuggestionsPage() {
         skillName: item.skill_name,
         roleTitle,
         strengthScore: Number(item.proficiency_score ?? 0),
-        courses: getCoursesForSkill(item.skill_name),
       }));
   }, [data]);
 
@@ -209,7 +245,7 @@ export default function EmployeeCourseSuggestionsPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900 dark:text-tw-text">Course Suggestions</h1>
             <p className="text-sm text-slate-600 dark:text-tw-muted mt-1">
-              Personalized course recommendations based on your current role and open skill gaps.
+              Personalized course recommendations generated dynamically by AI based on your specific role and skill gaps.
             </p>
           </div>
           <div className="rounded-xl bg-brand-50 dark:bg-tw-raised p-2">
@@ -223,77 +259,17 @@ export default function EmployeeCourseSuggestionsPage() {
           High Priority Suggestions (Based on Skill Gaps)
         </h2>
         {isLoading || isLoadingDashboard ? (
-          <p className="text-sm text-slate-600 dark:text-tw-muted">Loading course suggestions...</p>
+          <p className="text-sm text-slate-600 dark:text-tw-muted">Loading your skill profile...</p>
         ) : highPrioritySuggestions.length > 0 ? (
           <div className="space-y-4">
             {highPrioritySuggestions.map((item) => (
-              <div
+              <SkillCourseCard 
                 key={item.skillName}
-                className="rounded-xl border border-slate-200 dark:border-tw-border bg-slate-50 dark:bg-tw-raised p-4"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900 dark:text-tw-text">{item.skillName}</p>
-                    <p className="text-xs text-slate-500 dark:text-tw-muted mt-1">{item.reason}</p>
-                  </div>
-                  <span
-                    className={cn(
-                      "inline-flex rounded-full px-2 py-1 text-xs font-semibold",
-                      item.priority === "High"
-                        ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
-                        : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-                    )}
-                  >
-                    {item.priority} Priority
-                  </span>
-                </div>
-
-                <p className="mt-3 text-xs font-semibold text-slate-700 dark:text-tw-text">Gap-Closure Courses</p>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  {item.gapCourses.map((course) => (
-                    <a
-                      key={`${item.skillName}-${course.title}-gap`}
-                      href={course.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-lg border border-slate-200 dark:border-tw-border bg-white dark:bg-tw-card p-3 hover:border-brand-300 transition-colors"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-medium text-slate-900 dark:text-tw-text">{course.title}</p>
-                          <p className="text-xs text-slate-500 dark:text-tw-muted mt-1">
-                            {course.provider} · {course.level}
-                          </p>
-                        </div>
-                        <ExternalLink className="h-4 w-4 text-slate-400" />
-                      </div>
-                    </a>
-                  ))}
-                </div>
-
-                <p className="mt-3 text-xs font-semibold text-slate-700 dark:text-tw-text">Skill-Upgrade Courses</p>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  {item.upgradeCourses.map((course) => (
-                    <a
-                      key={`${item.skillName}-${course.title}-upgrade`}
-                      href={course.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-lg border border-slate-200 dark:border-tw-border bg-white dark:bg-tw-card p-3 hover:border-brand-300 transition-colors"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-medium text-slate-900 dark:text-tw-text">{course.title}</p>
-                          <p className="text-xs text-slate-500 dark:text-tw-muted mt-1">
-                            {course.provider} · {course.level}
-                          </p>
-                        </div>
-                        <ExternalLink className="h-4 w-4 text-slate-400" />
-                      </div>
-                    </a>
-                  ))}
-                </div>
-              </div>
+                skillName={item.skillName}
+                roleTitle={item.roleTitle}
+                priority={item.priority}
+                reason={item.reason}
+              />
             ))}
           </div>
         ) : (
@@ -311,48 +287,17 @@ export default function EmployeeCourseSuggestionsPage() {
           Best Skill Courses (Role-Aligned Growth)
         </h2>
         {isLoading ? (
-          <p className="text-sm text-slate-600 dark:text-tw-muted">Loading best skill courses...</p>
+          <p className="text-sm text-slate-600 dark:text-tw-muted">Loading your skill profile...</p>
         ) : bestSkillSuggestions.length > 0 ? (
           <div className="space-y-4">
             {bestSkillSuggestions.map((item) => (
-              <div
+              <SkillCourseCard 
                 key={`${item.skillName}-best`}
-                className="rounded-xl border border-slate-200 dark:border-tw-border bg-slate-50 dark:bg-tw-raised p-4"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900 dark:text-tw-text">{item.skillName}</p>
-                    <p className="text-xs text-slate-500 dark:text-tw-muted mt-1">
-                      Strength score {item.strengthScore.toFixed(2)} for {item.roleTitle}. Use these courses to deepen expertise.
-                    </p>
-                  </div>
-                  <span className="inline-flex rounded-full px-2 py-1 text-xs font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                    Best Skill
-                  </span>
-                </div>
-
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {item.courses.map((course) => (
-                    <a
-                      key={`${item.skillName}-${course.title}-best`}
-                      href={course.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-lg border border-slate-200 dark:border-tw-border bg-white dark:bg-tw-card p-3 hover:border-brand-300 transition-colors"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-medium text-slate-900 dark:text-tw-text">{course.title}</p>
-                          <p className="text-xs text-slate-500 dark:text-tw-muted mt-1">
-                            {course.provider} · {course.level}
-                          </p>
-                        </div>
-                        <ExternalLink className="h-4 w-4 text-slate-400" />
-                      </div>
-                    </a>
-                  ))}
-                </div>
-              </div>
+                skillName={item.skillName}
+                roleTitle={item.roleTitle}
+                isStrength={true}
+                reason={`Strength score ${item.strengthScore.toFixed(2)} for ${item.roleTitle}. Use these courses to deepen expertise.`}
+              />
             ))}
           </div>
         ) : (

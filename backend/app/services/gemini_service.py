@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import urllib.parse
 import google.generativeai as genai
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
@@ -87,6 +88,16 @@ class LearningPath(BaseModel):
     target_proficiency: float
     curated_steps: List[LearningStep]
     summary_advice: str
+
+class CourseSuggestionItem(BaseModel):
+    title: str
+    provider: str
+    level: str
+    url: str
+
+class SkillCourseRecommendations(BaseModel):
+    gap_courses: List[CourseSuggestionItem]
+    upgrade_courses: List[CourseSuggestionItem]
 
 class AssessmentQuestion(BaseModel):
     question_text: str
@@ -477,6 +488,36 @@ class GeminiService:
             return LearningPath.model_validate_json(response.text)
         except Exception as e:
             logger.error(f"Error generating learning path: {e}")
+            return None
+
+    @staticmethod
+    def suggest_courses(skill_name: str, role_title: str) -> Optional[SkillCourseRecommendations]:
+        """
+        Suggests real-world courses for gap-closing and upgrading a specific skill.
+        """
+        model = genai.GenerativeModel(settings.gemini_model or 'gemini-1.5-flash')
+        
+        prompt = f"Suggest 1 beginner course (gap_courses) and 1 advanced course (upgrade_courses) for {skill_name}."
+        
+        try:
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=SkillCourseRecommendations
+                )
+            )
+            result = SkillCourseRecommendations.model_validate_json(response.text)
+            
+            # Post-process links to ensure they are valid search links rather than hallucinated URLs
+            for course in result.gap_courses:
+                course.url = f"https://www.google.com/search?q={urllib.parse.quote(course.title + ' ' + course.provider + ' course')}"
+            for course in result.upgrade_courses:
+                course.url = f"https://www.google.com/search?q={urllib.parse.quote(course.title + ' ' + course.provider + ' course')}"
+                
+            return result
+        except Exception as e:
+            logger.error(f"Error suggesting courses for {skill_name}: {e}")
             return None
     @staticmethod
     def analyze_gap_vs_jd(employee_skills: List[Dict], jd_requirements: Dict) -> Dict[str, Any]:

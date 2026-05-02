@@ -8,6 +8,8 @@ import { MessageSquare, Send, X, Bot, User, Loader2, Minimize2, Maximize2, Spark
 import { cn } from "@/lib/utils";
 import { cardSurfaceClass, formInputClass } from "@/lib/ui";
 
+import ReactMarkdown from "react-markdown";
+
 export function AICoachChat() {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -56,8 +58,8 @@ export function AICoachChat() {
   return (
     <div 
       className={cn(
-        "fixed bottom-6 right-6 w-96 max-w-[calc(100vw-3rem)] bg-white dark:bg-tw-card rounded-2xl shadow-2xl border border-slate-200 dark:border-tw-border overflow-hidden z-50 flex flex-col transition-all duration-300",
-        isMinimized ? "h-14" : "h-[500px]"
+        "fixed bottom-6 right-6 w-[450px] max-w-[calc(100vw-3rem)] bg-white dark:bg-tw-card rounded-2xl shadow-2xl border border-slate-200 dark:border-tw-border overflow-hidden z-50 flex flex-col transition-all duration-300",
+        isMinimized ? "h-14" : "h-[600px]"
       )}
     >
       {/* Header */}
@@ -113,25 +115,45 @@ export function AICoachChat() {
                 )}
               >
                 <div className={cn(
-                  "h-8 w-8 rounded-full flex items-center justify-center shrink-0",
+                  "h-8 w-8 rounded-full flex items-center justify-center shrink-0 mt-1",
                   msg.role === "user" ? "bg-slate-200" : "bg-brand-100 text-brand-600"
                 )}>
                   {msg.role === "user" ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                 </div>
                 <div className={cn(
-                  "max-w-[80%] p-3 rounded-2xl text-sm",
+                  "max-w-[85%] p-3 rounded-2xl text-sm overflow-hidden",
                   msg.role === "user" 
                     ? "bg-brand-600 text-white rounded-tr-none" 
                     : "bg-white dark:bg-tw-card border border-slate-100 dark:border-tw-border text-slate-800 dark:text-tw-text shadow-sm rounded-tl-none"
                 )}>
-                  {msg.content}
+                  {msg.role === "user" ? (
+                    msg.content
+                  ) : (
+                    <div className="prose-sm max-w-none">
+                      <ReactMarkdown
+                        components={{
+                          strong: ({node, ...props}) => <strong className="block text-[15px] font-bold text-brand-700 dark:text-brand-400 mt-4 mb-1 leading-tight first:mt-0" {...props} />,
+                          em: ({node, ...props}) => <em className="block text-[14px] font-semibold text-slate-800 dark:text-slate-200 mt-3 mb-1 not-italic leading-tight first:mt-0" {...props} />,
+                          p: ({node, ...props}) => <p className="mb-2 last:mb-0 leading-relaxed" {...props} />,
+                          ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-2 space-y-1" {...props} />,
+                          ol: ({node, ...props}) => <ol className="list-decimal pl-5 mb-2 space-y-1" {...props} />,
+                          li: ({node, ...props}) => <li className="pl-1" {...props} />,
+                          h1: ({node, ...props}) => <h1 className="block text-lg font-bold text-brand-800 dark:text-brand-300 mt-4 mb-2 first:mt-0" {...props} />,
+                          h2: ({node, ...props}) => <h2 className="block text-base font-bold text-brand-700 dark:text-brand-400 mt-4 mb-2 first:mt-0" {...props} />,
+                          h3: ({node, ...props}) => <h3 className="block text-[15px] font-bold text-brand-700 dark:text-brand-400 mt-3 mb-1 first:mt-0" {...props} />,
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
             
             {chatMutation.isPending && (
               <div className="flex items-start gap-2">
-                <div className="h-8 w-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center">
+                <div className="h-8 w-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center mt-1">
                   <Bot className="h-4 w-4" />
                 </div>
                 <div className="bg-white dark:bg-tw-card border border-slate-100 p-3 rounded-2xl rounded-tl-none shadow-sm">
@@ -166,3 +188,4 @@ export function AICoachChat() {
     </div>
   );
 }
+

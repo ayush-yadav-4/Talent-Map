@@ -288,6 +288,8 @@ export const agentApi = {
   learning: {
     getPath: (skillName: string, currentProf = 1.0, targetProf = 4.0) => 
       api.get(`/api/v1/agent/learning/path/${skillName}`, { params: { current_prof: currentProf, target_prof: targetProf } }),
+    getCourses: (skillName: string, roleTitle: string) => 
+      api.get<{ gap_courses: any[]; upgrade_courses: any[] }>(`/api/v1/agent/learning/courses/${skillName}`, { params: { role_title: roleTitle } }),
   },
   coach: {
     chat: (message: string, history: any[] = []) => api.post("/api/v1/agent/coach/chat", { message, history }),
