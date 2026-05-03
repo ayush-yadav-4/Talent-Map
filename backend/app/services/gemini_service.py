@@ -1,17 +1,21 @@
-import os
 import json
 import logging
 import urllib.parse
-import google.generativeai as genai
+import warnings
 from typing import List, Dict, Any, Optional
+
+# Suppress legacy package deprecation at import; migrate to google.genai when we refactor.
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", FutureWarning)
+    import google.generativeai as genai
 from pydantic import BaseModel, Field
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Initialize Gemini
-genai.configure(api_key=settings.gemini_api_key or "PLACEHOLDER")
+if (settings.gemini_api_key or "").strip():
+    genai.configure(api_key=settings.gemini_api_key)
 
 # Helper for model fallback
 def get_model_name(default="gemini-1.5-flash"):
@@ -121,6 +125,36 @@ class CareerTrajectory(BaseModel):
     current_path: str
     milestones: List[TrajectoryMilestone]
     readiness_score: float
+
+
+class TaxonomySeedSkill(BaseModel):
+    canonical_name: str = Field(..., max_length=500)
+    domain: str = Field(..., max_length=100)
+    sub_domain: Optional[str] = Field(None, max_length=100)
+    is_compliance: bool = False
+    description: Optional[str] = None
+
+
+class TaxonomySeedEnvelope(BaseModel):
+    skills: List[TaxonomySeedSkill] = Field(default_factory=list)
+
+
+class MarketSkillSignal(BaseModel):
+    skill_name: str
+    trend: str  # rising | stable | declining
+    demand_level: int = Field(default=3)
+    why: str = ""
+
+
+class MarketSignalsEnvelope(BaseModel):
+    signals: List[MarketSkillSignal] = Field(default_factory=list)
+
+
+class LearningStyleResult(BaseModel):
+    dominant_trait: str = ""
+    learning_style: str = ""
+    summary: str = ""
+
 
 class GeminiService:
     @staticmethod
@@ -616,3 +650,142 @@ class GeminiService:
         except Exception as e:
             logger.error(f"Error predicting trajectory: {e}")
             return None
+
+    @staticmethod
+    def _gemini_configured() -> bool:
+        return bool((settings.gemini_api_key or "").strip())
+
+    @staticmethod
+    def seed_skills_for_sector(sector: str, domains: List[str], count: int = 80) -> List[Dict[str, Any]]:
+        """
+        Generate a sector-aware skill taxonomy slice via structured Gemini output.
+        """
+        if not GeminiService._gemini_configured():
+            logger.warning("taxonomy.seed.skip_no_gemini_key")
+            return []
+        model = genai.GenerativeModel(get_model_name())
+        domain_list = ", ".join(domains)
+        cap = min(max(count, 10), 120)
+        prompt = f"""
+You are building a workforce skills taxonomy for HR planning.
+Organization sector: {sector}
+Skill domains to cover (spread skills across these): {domain_list}
+
+Return JSON with key "skills": an array of {cap} distinct workplace skills relevant to this sector.
+Prioritize non-technical operational, compliance, safety, and people skills for non-IT sectors.
+For corporate/IT sectors, include a balanced mix of technical and soft skills.
+
+Each skill object must have:
+- canonical_name: short unique name (max 120 chars)
+- domain: one of the listed domains (closest match)
+- sub_domain: optional finer bucket (max 80 chars) or null
+- is_compliance: true only if regulatory / mandatory certification context
+- description: one sentence or null
+
+No duplicates. Use professional HR-friendly language.
+"""
+        try:
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=TaxonomySeedEnvelope,
+                ),
+            )
+            env = TaxonomySeedEnvelope.model_validate_json(response.text)
+            out: List[Dict[str, Any]] = []
+            for s in env.skills[:cap]:
+                out.append(
+                    {
+                        "canonical_name": s.canonical_name.strip(),
+                        "domain": (s.domain or "").strip()[:100] or domains[0],
+                        "sub_domain": (s.sub_domain or "").strip()[:100] or None,
+                        "is_compliance": bool(s.is_compliance),
+                        "description": (s.description or "").strip() or None,
+                    }
+                )
+            return out
+        except Exception as e:
+            logger.exception("taxonomy.seed.failed sector=%s err=%s", sector, e)
+            return []
+
+    @staticmethod
+    def get_market_skill_demand(sector: str, role: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Simulated market demand signals (LLM synthesis — not live job-scrape).
+        """
+        if not GeminiService._gemini_configured():
+            return []
+        model = genai.GenerativeModel(get_model_name())
+        lim = min(max(limit, 3), 25)
+        prompt = f"""
+You summarize current labor-market skill demand for hiring and workforce planning.
+Sector: {sector}
+Reference role (for context): {role or "General workforce"}
+
+Return JSON with key "signals": exactly {lim} objects, each:
+- skill_name: string
+- trend: one of "rising", "stable", "declining"
+- demand_level: integer 1-5 (5 = very high demand)
+- why: one concise sentence citing typical market drivers (generic, no fabricated statistics)
+
+Base guidance on widely discussed 2024-2026 workforce trends; do not invent specific survey names or URLs.
+"""
+        try:
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=MarketSignalsEnvelope,
+                ),
+            )
+            env = MarketSignalsEnvelope.model_validate_json(response.text)
+            return [sig.model_dump() for sig in env.signals[:lim]]
+        except Exception as e:
+            logger.exception("market_signals.failed sector=%s err=%s", sector, e)
+            return []
+
+    @staticmethod
+    def derive_learning_style(scores: Dict[str, Any], assessment_type: str) -> Dict[str, str]:
+        """
+        Map raw psychometric scores to dominant trait + suggested learning style labels.
+        """
+        if not GeminiService._gemini_configured():
+            return {
+                "dominant_trait": "unknown",
+                "learning_style": "balanced",
+                "summary": "Configure GEMINI_API_KEY for AI-derived learning style.",
+            }
+        model = genai.GenerativeModel(get_model_name())
+        prompt = f"""
+Assessment type: {assessment_type}
+Raw dimension scores (0-100 scale or similar): {json.dumps(scores)}
+
+Return JSON matching schema:
+- dominant_trait: short label (e.g. Dominant Steadiness, High Openness)
+- learning_style: one of: visual, auditory, reading_writing, kinesthetic, social, self_paced, structured
+- summary: 2 sentences for L&D on how to tailor training
+
+Use only the provided numbers; do not invent extra dimensions.
+"""
+        try:
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=LearningStyleResult,
+                ),
+            )
+            r = LearningStyleResult.model_validate_json(response.text)
+            return {
+                "dominant_trait": r.dominant_trait.strip(),
+                "learning_style": r.learning_style.strip(),
+                "summary": r.summary.strip(),
+            }
+        except Exception as e:
+            logger.exception("psychometric.derive.failed err=%s", e)
+            return {
+                "dominant_trait": "unknown",
+                "learning_style": "balanced",
+                "summary": "Could not derive profile.",
+            }

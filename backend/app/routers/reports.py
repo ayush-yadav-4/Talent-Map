@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -13,6 +14,7 @@ from app.database import get_db
 from app.deps import get_current_user, require_roles
 from app.models.analytics import Assessment, AssessmentSession, EmployeeSkillScore, Skill, SkillGap
 from app.models.department import Department
+from app.models.psychometric import PsychometricResult
 from app.models.employee import Employee
 from app.models.user import User
 from app.schemas.gap import DashboardStats
@@ -346,6 +348,112 @@ async def get_hr_dashboard(
         },
         "heatmap": d["dept_gap_heatmap"],
         "recent_activity": d["recent_activity"][:10],
+    }
+
+
+@router.get("/hr/gap-summary")
+async def hr_gap_summary(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("org_admin", "hr_manager", "manager")),
+    dept_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Org-level open skill gaps aggregated by skill with worst-affected department.
+    """
+    org_id = current_user.org_id
+    filters = [
+        Employee.org_id == org_id,
+        SkillGap.status == "open",
+    ]
+    if dept_id and dept_id.strip():
+        try:
+            did = UUID(dept_id.strip())
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid dept_id") from exc
+        filters.append(Employee.dept_id == did)
+
+    rows = await db.execute(
+        select(SkillGap, Skill, Employee, Department)
+        .join(Skill, Skill.id == SkillGap.skill_id)
+        .join(Employee, Employee.id == SkillGap.employee_id)
+        .outerjoin(Department, Department.id == Employee.dept_id)
+        .where(*filters)
+    )
+
+    by_skill: dict[UUID, dict[str, Any]] = {}
+    for gap, skill, emp, dept in rows.all():
+        sid = skill.id
+        bucket = by_skill.setdefault(
+            sid,
+            {
+                "skill_id": str(sid),
+                "skill_name": skill.canonical_name,
+                "domain": skill.domain,
+                "compliance_flag": bool(skill.is_compliance),
+                "employee_ids": set(),
+                "gap_magnitudes": [],
+                "dept_counts": defaultdict(int),
+            },
+        )
+        bucket["employee_ids"].add(emp.id)
+        bucket["gap_magnitudes"].append(float(gap.gap_magnitude or 0))
+        dname = dept.name if dept and dept.name else "Unassigned"
+        bucket["dept_counts"][dname] += 1
+        bucket["compliance_flag"] = bucket["compliance_flag"] or bool(skill.is_compliance)
+
+    out: list[dict[str, Any]] = []
+    for b in by_skill.values():
+        dept_counts = b["dept_counts"]
+        worst = max(dept_counts, key=lambda k: dept_counts[k]) if dept_counts else None
+        gm = b["gap_magnitudes"]
+        out.append(
+            {
+                "skill_id": b["skill_id"],
+                "skill_name": b["skill_name"],
+                "domain": b["domain"],
+                "total_employees_with_gap": len(b["employee_ids"]),
+                "avg_gap": round(sum(gm) / len(gm), 3) if gm else 0.0,
+                "worst_dept": worst,
+                "compliance_flag": b["compliance_flag"],
+            }
+        )
+    out.sort(key=lambda r: r["total_employees_with_gap"], reverse=True)
+    return out
+
+
+@router.get("/hr/psychometric-distribution")
+async def hr_psychometric_distribution(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("org_admin", "hr_manager")),
+) -> dict[str, Any]:
+    """Aggregate dominant traits and learning styles (latest result per employee)."""
+    q = (
+        select(PsychometricResult, Employee, Department)
+        .join(Employee, Employee.id == PsychometricResult.employee_id)
+        .outerjoin(Department, Department.id == Employee.dept_id)
+        .where(PsychometricResult.org_id == current_user.org_id)
+        .order_by(PsychometricResult.completed_at.desc())
+    )
+    result = await db.execute(q)
+    seen: set[UUID] = set()
+    trait_counts: dict[str, int] = defaultdict(int)
+    style_counts: dict[str, int] = defaultdict(int)
+    by_department: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+    for pr, emp, dept in result.all():
+        if pr.employee_id in seen:
+            continue
+        seen.add(pr.employee_id)
+        trait_counts[pr.dominant_trait] += 1
+        style_counts[pr.learning_style] += 1
+        dname = dept.name if dept and dept.name else "Unassigned"
+        by_department[dname][pr.dominant_trait] += 1
+
+    return {
+        "trait_counts": dict(sorted(trait_counts.items(), key=lambda x: -x[1])),
+        "learning_style_counts": dict(sorted(style_counts.items(), key=lambda x: -x[1])),
+        "by_department": {k: dict(v) for k, v in by_department.items()},
+        "employees_profiled": len(seen),
     }
 
 

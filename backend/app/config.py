@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Optional
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,7 +33,10 @@ class Settings(BaseSettings):
     app_login_url: str = "http://localhost:3001/login"
 
     sentry_dsn: Optional[str] = None
-    gemini_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    )
     gemini_model: str = "gemini-1.5-flash-latest"
     mongodb_url: Optional[str] = None
 

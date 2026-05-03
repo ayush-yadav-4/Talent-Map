@@ -12,11 +12,17 @@ logger = logging.getLogger(__name__)
 
 def _async_database_url(url: str) -> str:
     """Normalize to SQLAlchemy async driver (psycopg v3)."""
-    if "+psycopg_async" in url or "+asyncpg" in url:
-        return url.replace("+asyncpg", "+psycopg_async", 1)
-    if url.startswith("postgresql://"):
-        return url.replace("postgresql://", "postgresql+psycopg_async://", 1)
-    return url
+    u = url.strip()
+    if "+psycopg_async" in u or "+asyncpg" in u:
+        u = u.replace("+asyncpg", "+psycopg_async", 1)
+    elif u.startswith("postgresql://"):
+        u = u.replace("postgresql://", "postgresql+psycopg_async://", 1)
+    # Supabase / many cloud hosts require TLS; async fails mysteriously without it.
+    low = u.lower()
+    if "supabase.co" in low or "pooler.supabase.com" in low:
+        if "sslmode=" not in low and "ssl=" not in low:
+            u = f"{u}{'&' if '?' in u else '?'}sslmode=require"
+    return u
 
 
 engine = create_async_engine(

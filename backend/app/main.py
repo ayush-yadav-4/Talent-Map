@@ -1,4 +1,11 @@
+import asyncio
 import logging
+import sys
+
+# Uvicorn --reload spawns a child that imports this module but not run_backend.py; async
+# psycopg on Windows otherwise uses Proactor and raises InterfaceError on DB access.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from fastapi import FastAPI
 from fastapi import HTTPException
@@ -7,7 +14,23 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.database import AsyncSessionLocal
-from app.routers import auth, employees, organizations, reports, skills, assessments, employee_skills, role_intelligence, matching, learning, coach, assessment_agent, job_descriptions
+from app.routers import (
+    auth,
+    assessments,
+    assessment_agent,
+    coach,
+    employee_skills,
+    employees,
+    job_descriptions,
+    learning,
+    market_signals,
+    matching,
+    organizations,
+    psychometrics,
+    reports,
+    role_intelligence,
+    skills,
+)
 
 if settings.sentry_dsn:
     import sentry_sdk
@@ -46,7 +69,9 @@ app.include_router(matching.router, prefix="/api/v1/agent/matching", tags=["Matc
 app.include_router(learning.router, prefix="/api/v1/agent/learning", tags=["Learning Agent"])
 app.include_router(coach.router, prefix="/api/v1/agent/coach", tags=["AI Coach"])
 app.include_router(assessment_agent.router, prefix="/api/v1/agent/assessment", tags=["Assessment Agent"])
+app.include_router(market_signals.router, prefix="/api/v1/agent", tags=["Market Signals"])
 app.include_router(job_descriptions.router, prefix="/api/v1/job-descriptions", tags=["Job Descriptions"])
+app.include_router(psychometrics.router, prefix="/api/v1/psychometrics", tags=["Psychometrics"])
 from fastapi.staticfiles import StaticFiles
 import os
 os.makedirs("uploads/resumes", exist_ok=True)

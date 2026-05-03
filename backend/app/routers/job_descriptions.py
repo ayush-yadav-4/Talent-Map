@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user
+from app.models.department import Department
+from app.models.employee import Employee
 from app.models.job_description import JobDescription, JDGapAnalysis
 from app.models.user import User
 from app.services.gemini_service import GeminiService
@@ -258,27 +260,31 @@ async def list_all_gaps(
     if current_user.role not in ("org_admin", "hr_manager"):
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    from app.models.employee import Employee
     result = await db.execute(
-        select(JDGapAnalysis, Employee, JobDescription)
+        select(JDGapAnalysis, Employee, JobDescription, Department)
         .join(Employee, JDGapAnalysis.employee_id == Employee.id)
         .join(JobDescription, JDGapAnalysis.jd_id == JobDescription.id)
+        .outerjoin(Department, Employee.dept_id == Department.id)
         .where(Employee.org_id == current_user.org_id)
         .order_by(JDGapAnalysis.created_at.desc())
     )
-    
+
     gaps = []
-    for gap, emp, jd in result.all():
-        gaps.append({
-            "id": gap.id,
-            "employee_id": emp.id,
-            "employee_name": emp.full_name,
-            "jd_id": jd.id,
-            "jd_title": jd.title,
-            "fit_score": gap.fit_score,
-            "analysis_results": gap.analysis_results,
-            "created_at": gap.created_at
-        })
+    for gap, emp, jd, dept in result.all():
+        gaps.append(
+            {
+                "id": gap.id,
+                "employee_id": emp.id,
+                "employee_name": emp.full_name,
+                "dept_id": str(emp.dept_id) if emp.dept_id else None,
+                "dept_name": dept.name if dept else None,
+                "jd_id": jd.id,
+                "jd_title": jd.title,
+                "fit_score": gap.fit_score,
+                "analysis_results": gap.analysis_results,
+                "created_at": gap.created_at,
+            }
+        )
     return gaps
 
 @router.delete("/{jd_id}")

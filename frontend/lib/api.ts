@@ -266,12 +266,32 @@ export const employeeApi = {
 export const skillApi = {
   search: (q: string) => api.get("/api/v1/skills/search", { params: { q } }),
   byRole: (title: string) => api.get("/api/v1/skills/by-role", { params: { title } }),
+  taxonomyList: (params?: { sector?: string; domain?: string; page?: number; limit?: number }) =>
+    api.get("/api/v1/skills/taxonomy", { params }),
+  taxonomySeed: (body?: { sector?: string; count?: number }) => api.post("/api/v1/skills/taxonomy/seed", body ?? {}),
+  taxonomyAdd: (body: {
+    canonical_name: string;
+    domain: string;
+    sub_domain?: string;
+    sector: string;
+    is_compliance?: boolean;
+  }) => api.post("/api/v1/skills/taxonomy/add", body),
 };
 
 export const reportApi = {
   hrDashboard: () => api.get("/api/v1/reports/hr/dashboard"),
   hrDashboardStats: () => api.get("/api/v1/reports/hr/dashboard-stats"),
+  hrGapSummary: (deptId?: string) =>
+    api.get("/api/v1/reports/hr/gap-summary", { params: deptId ? { dept_id: deptId } : {} }),
+  hrPsychometricDistribution: () => api.get("/api/v1/reports/hr/psychometric-distribution"),
   employeeDashboard: (employeeId: string) => api.get(`/api/v1/reports/employee/dashboard-stats/${employeeId}`),
+};
+
+export const psychometricsApi = {
+  submit: (body: { employee_id?: string; assessment_type: "DISC" | "BigFive"; scores: Record<string, number> }) =>
+    api.post("/api/v1/psychometrics/submit", body),
+  getEmployee: (employeeId: string) => api.get(`/api/v1/psychometrics/employee/${employeeId}`),
+  hrSummary: () => api.get("/api/v1/psychometrics/hr/summary"),
 };
 
 export const agentApi = {
@@ -293,7 +313,9 @@ export const agentApi = {
   },
   coach: {
     chat: (message: string, history: any[] = []) => api.post("/api/v1/agent/coach/chat", { message, history }),
-  }
+  },
+  marketSignals: (params?: { sector?: string; role?: string; limit?: number }) =>
+    api.get("/api/v1/agent/market-signals", { params }),
 };
 
 export function persistAuth(tokens: TokenResponse) {

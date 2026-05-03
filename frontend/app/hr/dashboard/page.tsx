@@ -3,20 +3,39 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
-  PolarAngleAxis,
-  PolarGrid,
-  PolarRadiusAxis,
-  Radar,
-  RadarChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
   ResponsiveContainer,
   Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
-import { orgApi, readStoredUser, reportApi } from "@/lib/api";
+import { MarketIntelPanel } from "@/components/hr/MarketIntelPanel";
+import { MatchingDashboard } from "@/components/hr/MatchingDashboard";
+import { RoleIntelligenceAgent } from "@/components/hr/RoleIntelligenceAgent";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { cardSurfaceClass } from "@/lib/ui";
-import { RoleIntelligenceAgent } from "@/components/hr/RoleIntelligenceAgent";
-import { MatchingDashboard } from "@/components/hr/MatchingDashboard";
 import { cn } from "@/lib/utils";
+import { orgApi, readStoredUser, reportApi } from "@/lib/api";
+
+type TopSkillGap = {
+  skill_name?: string;
+  skill?: string;
+  domain?: string;
+  is_compliance?: boolean;
+  employees_affected?: number;
+  count?: number;
+  workforce_pct?: number;
+};
+
+type CertAlert = {
+  employee_name?: string;
+  cert_name?: string;
+  urgency?: string;
+  days_until_expiry?: number | null;
+  expiry_date?: string | null;
+};
 
 type HrDashboard = {
   counts: {
@@ -33,6 +52,8 @@ type HrDashboard = {
   };
   proficiency: { avg_org_proficiency: number };
   heatmap: { dept?: string; name?: string; gaps: number; avg_proficiency: number }[];
+  gaps?: { top_skill_gaps?: TopSkillGap[] };
+  certifications?: { alerts?: CertAlert[] };
 };
 
 export default function HrDashboardPage() {
@@ -47,6 +68,14 @@ export default function HrDashboardPage() {
     },
     enabled: ready,
   });
+  const { data: org } = useQuery({
+    queryKey: ["hr-dashboard-org", orgId],
+    queryFn: async () => {
+      const { data: o } = await orgApi.get(orgId ?? "");
+      return o as { sector?: string; name?: string };
+    },
+    enabled: ready && Boolean(orgId),
+  });
   const { data: employees } = useQuery({
     queryKey: ["dashboard-employees"],
     queryFn: async () => {
@@ -59,22 +88,13 @@ export default function HrDashboardPage() {
   if (!ready) return null;
 
   const heat = data?.heatmap ?? [];
-  const avgProf = data?.proficiency?.avg_org_proficiency ?? 0;
-  const crit = data?.counts?.critical_gaps ?? 0;
-  const radarData = heat.length
-    ? heat.slice(0, 6).map((row) => ({
-        domain: (row.dept || row.name || "Dept").slice(0, 18),
-        proficiency: row.avg_proficiency,
-        gaps: row.gaps,
-      }))
-    : [
-        { domain: "Technical", proficiency: avgProf, gaps: crit },
-        { domain: "Compliance", proficiency: 0, gaps: 0 },
-        { domain: "Leadership", proficiency: 0, gaps: 0 },
-        { domain: "Communication", proficiency: 0, gaps: 0 },
-        { domain: "Domain", proficiency: 0, gaps: 0 },
-        { domain: "Cognitive", proficiency: 0, gaps: 0 },
-      ];
+  const deptBarData = heat.map((row) => ({
+    name: (row.dept || row.name || "Dept").slice(0, 14),
+    gaps: row.gaps ?? 0,
+    proficiency: row.avg_proficiency ?? 0,
+  }));
+  const topGaps = (data?.gaps?.top_skill_gaps ?? []).slice(0, 5);
+  const certAlerts = (data?.certifications?.alerts ?? []).slice(0, 5);
 
   return (
     <div className="space-y-8">
@@ -134,18 +154,23 @@ export default function HrDashboardPage() {
 
       <div className="grid gap-6 lg:grid-cols-5">
         <div className={cn(cardSurfaceClass, "p-4 shadow-sm lg:col-span-3")}>
-          <h2 className="text-sm font-semibold text-slate-900 dark:text-tw-text">Capability snapshot</h2>
-          <p className="mt-1 text-xs text-slate-500 dark:text-tw-muted">Department averages vs. gap counts (placeholder axes when data is sparse).</p>
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-tw-text">Department gap load</h2>
+          <p className="mt-1 text-xs text-slate-500 dark:text-tw-muted">Open skill gaps by department (from live gap data).</p>
           <div className="mt-4 h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="80%">
-                <PolarGrid stroke="#cbd5e1" className="dark:stroke-tw-border" />
-                <PolarAngleAxis dataKey="domain" tick={{ fontSize: 11, fill: "#64748b" }} />
-                <PolarRadiusAxis angle={30} domain={[0, 5]} tick={{ fontSize: 10 }} />
-                <Radar name="Avg proficiency" dataKey="proficiency" stroke="#4f46e5" fill="#6366f1" fillOpacity={0.35} />
-                <Tooltip />
-              </RadarChart>
-            </ResponsiveContainer>
+            {deptBarData.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={deptBarData} margin={{ left: 0, right: 8, bottom: 32 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-tw-border" />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={48} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Bar dataKey="gaps" name="Open gaps" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="proficiency" name="Avg proficiency" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="py-16 text-center text-sm text-slate-500 dark:text-tw-muted">No department gap data yet.</p>
+            )}
           </div>
         </div>
         <div className={cn(cardSurfaceClass, "space-y-3 p-4 shadow-sm lg:col-span-2")}>
@@ -159,6 +184,68 @@ export default function HrDashboardPage() {
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 dark:border-tw-border dark:bg-tw-raised dark:text-tw-text">
             Pending assessments: <span className="font-bold">{data?.counts?.assessments_pending ?? 0}</span>
           </div>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className={cn(cardSurfaceClass, "p-4 shadow-sm")}>
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-tw-text">Top skill gaps</h2>
+          <p className="mt-1 text-xs text-slate-500 dark:text-tw-muted">Highest-impact gaps across the workforce.</p>
+          <ul className="mt-4 space-y-2">
+            {topGaps.map((g, idx) => {
+              const name = g.skill_name || g.skill || "Skill";
+              const n = g.employees_affected ?? g.count ?? 0;
+              const pct = g.workforce_pct ?? 0;
+              return (
+                <li
+                  key={`${name}-${idx}`}
+                  className="flex items-start justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2 text-xs dark:border-tw-border dark:bg-tw-raised"
+                >
+                  <div>
+                    <p className="font-semibold text-slate-900 dark:text-tw-text">{name}</p>
+                    <p className="text-slate-500 dark:text-tw-muted">{g.domain ?? ""}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold text-slate-900 dark:text-tw-text">{n} people</p>
+                    <p className="text-slate-500">{pct}% org</p>
+                    {g.is_compliance && (
+                      <span className="mt-1 inline-block rounded bg-rose-100 px-1 text-[10px] font-bold text-rose-800 dark:bg-rose-950/40 dark:text-rose-200">
+                        Compliance
+                      </span>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          {!topGaps.length && (
+            <p className="mt-4 text-xs text-slate-500 dark:text-tw-muted">No aggregated gaps yet — add role requirements and evidence.</p>
+          )}
+        </div>
+
+        <MarketIntelPanel sector={org?.sector} roleHint="Organization workforce" limit={5} />
+
+        <div className={cn(cardSurfaceClass, "p-4 shadow-sm")}>
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-tw-text">Certification board</h2>
+          <p className="mt-1 text-xs text-slate-500 dark:text-tw-muted">Upcoming and urgent expiries.</p>
+          <ul className="mt-4 space-y-2">
+            {certAlerts.map((c, i) => (
+              <li
+                key={`${c.employee_name}-${c.cert_name}-${i}`}
+                className="rounded-lg border border-slate-100 px-3 py-2 text-xs dark:border-tw-border"
+              >
+                <p className="font-medium text-slate-900 dark:text-tw-text">{c.employee_name}</p>
+                <p className="text-slate-600 dark:text-tw-muted">{c.cert_name}</p>
+                <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">
+                  {c.urgency ?? "—"}
+                  {c.days_until_expiry != null ? ` · ${c.days_until_expiry}d` : ""}
+                </p>
+              </li>
+            ))}
+          </ul>
+          {!certAlerts.length && (
+            <p className="mt-4 text-xs text-slate-500 dark:text-tw-muted">No certification rows tracked.</p>
+          )}
         </div>
       </div>
 

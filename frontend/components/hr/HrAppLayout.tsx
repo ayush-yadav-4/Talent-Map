@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Building2, LayoutDashboard, LogOut, Settings, Users } from "lucide-react";
+import { Brain, Building2, LayoutDashboard, LineChart, LogOut, Settings, Target, Users } from "lucide-react";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { clearAuth, orgApi, readStoredUser, type AuthUser, type OrgStructureNode } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -12,8 +12,11 @@ import { cn } from "@/lib/utils";
 const nav = [
   { href: "/hr/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/hr/employees", label: "Employees", icon: Users },
-  { href: "/hr/projects", label: "Projects", icon: Building2 }, // Reusing icon or should find FolderKanban
+  { href: "/hr/projects", label: "Projects", icon: Building2 },
   { href: "/hr/job-descriptions", label: "Job Descriptions", icon: Building2 },
+  { href: "/hr/skill-intelligence", label: "Skill Intelligence", icon: LineChart },
+  { href: "/hr/skill-gaps", label: "Skill Gaps", icon: Target },
+  { href: "/hr/psychometrics", label: "Psychometrics", icon: Brain },
   { href: "/hr/organization", label: "Organization", icon: Building2 },
   { href: "/hr/settings", label: "Settings", icon: Settings },
 ];

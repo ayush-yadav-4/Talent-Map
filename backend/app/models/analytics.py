@@ -7,7 +7,7 @@ from datetime import date, datetime
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, func, JSON
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, func, JSON, text
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,6 +20,8 @@ class Skill(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     canonical_name: Mapped[str] = mapped_column(String(500), nullable=False)
     domain: Mapped[str | None] = mapped_column(String(100))
+    sub_domain: Mapped[str | None] = mapped_column(String(100))
+    sector_tags: Mapped[list[str] | None] = mapped_column(ARRAY(Text()), server_default=text("'{}'::text[]"))
     is_compliance: Mapped[bool] = mapped_column(Boolean, server_default="false")
     embedding: Mapped[Any] = mapped_column(Vector(768), nullable=True, deferred=True)
 
