@@ -30,6 +30,7 @@ from app.routers import (
     reports,
     role_intelligence,
     skills,
+    development,
 )
 
 if settings.sentry_dsn:
@@ -72,6 +73,7 @@ app.include_router(assessment_agent.router, prefix="/api/v1/agent/assessment", t
 app.include_router(market_signals.router, prefix="/api/v1/agent", tags=["Market Signals"])
 app.include_router(job_descriptions.router, prefix="/api/v1/job-descriptions", tags=["Job Descriptions"])
 app.include_router(psychometrics.router, prefix="/api/v1/psychometrics", tags=["Psychometrics"])
+app.include_router(development.router, prefix="/api/v1/development", tags=["Development Plans"])
 from fastapi.staticfiles import StaticFiles
 import os
 os.makedirs("uploads/resumes", exist_ok=True)

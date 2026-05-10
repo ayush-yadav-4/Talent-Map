@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { cardSurfaceClass } from "@/lib/ui";
 import { TrendingUp, Calendar, Target, Award, ChevronRight, Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, toRenderableText } from "@/lib/utils";
 
 type CareerTrajectoryProps = {
   /** When set (e.g. HR viewing an employee), loads that employee's stored trajectory instead of the logged-in user. */
@@ -74,10 +74,10 @@ export function CareerTrajectory({ employeeId: employeeIdProp }: CareerTrajector
             <div className="space-y-3">
               <p className="text-[10px] font-bold uppercase text-slate-400">Target Skills to Acquire:</p>
               <div className="flex flex-wrap gap-2">
-                {milestone.expected_skills.map((skill: string, sidx: number) => (
+                {milestone.expected_skills.map((skill: any, sidx: number) => (
                   <div key={sidx} className="flex items-center gap-1.5 px-2 py-1 bg-white dark:bg-tw-card border border-slate-200 dark:border-tw-border rounded-lg text-xs text-slate-700 dark:text-tw-muted shadow-sm">
                     <Target className="h-3 w-3 text-brand-500" />
-                    {skill}
+                    {toRenderableText(skill)}
                   </div>
                 ))}
               </div>

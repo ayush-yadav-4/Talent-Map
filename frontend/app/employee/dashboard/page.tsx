@@ -8,7 +8,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { cardSurfaceClass, buttonClass } from "@/lib/ui";
 import { LearningJourney } from "@/components/employee/LearningJourney";
 import { CareerTrajectory } from "@/components/employee/CareerTrajectory";
-import { cn } from "@/lib/utils";
+import { cn, toRenderableText } from "@/lib/utils";
 import { Sparkles, RefreshCw, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui";
@@ -267,8 +267,8 @@ export default function EmployeeDashboardPage() {
           <div className="mt-3 space-y-2">
             {topGaps.length ? (
               topGaps.map((gap) => (
-                <div key={gap.skill} className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-tw-border dark:bg-tw-raised">
-                  <p className="text-sm font-medium text-slate-900 dark:text-tw-text">{gap.skill}</p>
+                <div key={toRenderableText(gap.skill)} className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-tw-border dark:bg-tw-raised">
+                  <p className="text-sm font-medium text-slate-900 dark:text-tw-text">{toRenderableText(gap.skill)}</p>
                   <p className="text-xs text-slate-500 dark:text-tw-muted">
                     Gap {gap.gap.toFixed(2)} · {gap.criticality} · priority {gap.priority.toFixed(2)}
                   </p>

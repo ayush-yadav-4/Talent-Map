@@ -239,6 +239,8 @@ export const orgApi = {
   createProject: (orgId: string, body: ProjectPayload) => api.post(`/api/v1/organizations/${orgId}/projects`, body),
   updateProject: (orgId: string, projectId: string, body: ProjectPayload) =>
     api.put(`/api/v1/organizations/${orgId}/projects/${projectId}`, body),
+  getProjectRecommendations: (orgId: string, projectId: string) =>
+    api.get(`/api/v1/organizations/${orgId}/projects/${projectId}/ai-recommendations`),
   assignProjectMember: (orgId: string, projectId: string, body: ProjectAssignPayload) =>
     api.post(`/api/v1/organizations/${orgId}/projects/${projectId}/assignments`, body),
   removeProjectMember: (orgId: string, projectId: string, employeeId: string) =>
@@ -284,6 +286,7 @@ export const reportApi = {
   hrGapSummary: (deptId?: string) =>
     api.get("/api/v1/reports/hr/gap-summary", { params: deptId ? { dept_id: deptId } : {} }),
   hrPsychometricDistribution: () => api.get("/api/v1/reports/hr/psychometric-distribution"),
+  getReadinessScorecard: (employeeId: string) => api.get(`/api/v1/reports/hr/readiness/employee/${employeeId}`),
   employeeDashboard: (employeeId: string) => api.get(`/api/v1/reports/employee/dashboard-stats/${employeeId}`),
 };
 
@@ -316,6 +319,14 @@ export const agentApi = {
   },
   marketSignals: (params?: { sector?: string; role?: string; limit?: number }) =>
     api.get("/api/v1/agent/market-signals", { params }),
+};
+
+export const developmentApi = {
+  generateIdp: (targetRole?: string) => api.post("/api/v1/development/generate", { target_role: targetRole }),
+  listPlans: () => api.get("/api/v1/development/plans"),
+  getPlan: (id: string) => api.get(`/api/v1/development/plans/${id}`),
+  createPlan: (body: any) => api.post("/api/v1/development/plans", body),
+  updateMilestone: (id: string, body: any) => api.patch(`/api/v1/development/milestones/${id}`, body),
 };
 
 export function persistAuth(tokens: TokenResponse) {

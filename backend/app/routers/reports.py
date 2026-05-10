@@ -12,12 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user, require_roles
-from app.models.analytics import Assessment, AssessmentSession, EmployeeSkillScore, Skill, SkillGap
+from app.models.analytics import Assessment, AssessmentSession, EmployeeSkillScore, Skill, SkillGap, RoleRequiredSkill, RoleProfile
 from app.models.department import Department
 from app.models.psychometric import PsychometricResult
 from app.models.employee import Employee
 from app.models.user import User
+from app.models.job_description import JDGapAnalysis
 from app.schemas.gap import DashboardStats
+from app.services.gemini_service import GeminiService
 
 router = APIRouter()
 
@@ -520,6 +522,27 @@ async def get_employee_dashboard_stats(
         for gap, skill in gaps_result.all()
     ]
 
+    # Include AI gaps from JD analysis
+    jd_gaps_res = await db.execute(
+        select(JDGapAnalysis)
+        .where(JDGapAnalysis.employee_id == eid)
+        .order_by(JDGapAnalysis.created_at.desc())
+        .limit(3)
+    )
+    for jd_gap in jd_gaps_res.scalars().all():
+        res = jd_gap.analysis_results or {}
+        gaps = res.get("gaps") or []
+        for g in gaps:
+            name = g if isinstance(g, str) else g.get("skill_name")
+            if name and not any(tg["skill"] == name for tg in top_gaps):
+                top_gaps.append({
+                    "skill": name,
+                    "domain": "AI Identified",
+                    "gap": 1.0,
+                    "priority": 0.5,
+                    "criticality": "AI Identified",
+                })
+
     recent_sessions = [
         {
             "id": str(s.id),
@@ -540,3 +563,94 @@ async def get_employee_dashboard_stats(
         "recent_sessions": recent_sessions,
         "certs_expiring_soon": sum(1 for s, _ in scores_data if s.certification_expiry and not s.is_expired),
     }
+@router.get("/hr/readiness/employee/{employee_id}", response_model=dict)
+async def get_employee_readiness_scorecard(
+    employee_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("org_admin", "hr_manager", "manager")),
+) -> dict:
+    try:
+        eid = UUID(employee_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid employee id") from exc
+
+    # 1. Get Employee Profile
+    emp_res = await db.execute(select(Employee).where(Employee.id == eid, Employee.org_id == current_user.org_id))
+    emp = emp_res.scalar_one_or_none()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    # 2. Get Employee Skills
+    skills_res = await db.execute(
+        select(EmployeeSkillScore, Skill)
+        .join(Skill, EmployeeSkillScore.skill_id == Skill.id)
+        .where(EmployeeSkillScore.employee_id == eid)
+    )
+    skills = [
+        {"skill_name": skill.canonical_name, "proficiency": score.proficiency_score}
+        for score, skill in skills_res.all()
+    ]
+
+    # 3. Get Current Role Requirements (if possible)
+    # We'll look for a RoleProfile matching the employee's job_title
+    role_res = await db.execute(
+        select(RoleProfile).where(
+            RoleProfile.org_id == current_user.org_id,
+            func.lower(RoleProfile.job_title) == emp.job_title.lower() if emp.job_title else ""
+        )
+    )
+    role = role_res.scalar_one_or_none()
+    
+    current_reqs = {}
+    if role:
+        req_res = await db.execute(
+            select(RoleRequiredSkill, Skill)
+            .join(Skill, RoleRequiredSkill.skill_id == Skill.id)
+            .where(RoleRequiredSkill.role_profile_id == role.id)
+        )
+        current_reqs = {
+            "title": role.job_title,
+            "skills": [
+                {"skill_name": s.canonical_name, "min_proficiency": rs.required_proficiency}
+                for rs, s in req_res.all()
+            ]
+        }
+
+    # 4. Get Next Level Requirements (Simple logic: look for senior/lead variant)
+    next_role_res = await db.execute(
+        select(RoleProfile).where(
+            RoleProfile.org_id == current_user.org_id,
+            RoleProfile.job_title.ilike(f"%senior% {emp.job_title}%") | RoleProfile.job_title.ilike(f"%lead% {emp.job_title}%")
+        ).limit(1)
+    )
+    next_role = next_role_res.scalar_one_or_none()
+    
+    next_reqs = None
+    if next_role:
+        next_req_res = await db.execute(
+            select(RoleRequiredSkill, Skill)
+            .join(Skill, RoleRequiredSkill.skill_id == Skill.id)
+            .where(RoleRequiredSkill.role_profile_id == next_role.id)
+        )
+        next_reqs = {
+            "title": next_role.job_title,
+            "skills": [
+                {"skill_name": s.canonical_name, "min_proficiency": rs.required_proficiency}
+                for rs, s in next_req_res.all()
+            ]
+        }
+
+    # 5. Call Gemini
+    employee_data = {
+        "full_name": emp.full_name,
+        "job_title": emp.job_title,
+        "seniority_level": emp.seniority_level,
+        "skills": skills
+    }
+    
+    analysis = GeminiService.analyze_readiness_scorecard(employee_data, current_reqs, next_reqs)
+    
+    if not analysis:
+        raise HTTPException(status_code=500, detail="AI analysis failed")
+
+    return analysis.model_dump()

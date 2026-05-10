@@ -16,8 +16,9 @@ const nav = [
   { href: "/hr/job-descriptions", label: "Job Descriptions", icon: Building2 },
   { href: "/hr/skill-intelligence", label: "Skill Intelligence", icon: LineChart },
   { href: "/hr/skill-gaps", label: "Skill Gaps", icon: Target },
+  { href: "/hr/hire-vs-upskill", label: "Hire vs Upskill", icon: Target },
   { href: "/hr/psychometrics", label: "Psychometrics", icon: Brain },
-  { href: "/hr/organization", label: "Organization", icon: Building2 },
+  { href: "/hr/readiness", label: "Readiness & Mobility", icon: Target },
   { href: "/hr/settings", label: "Settings", icon: Settings },
 ];
 

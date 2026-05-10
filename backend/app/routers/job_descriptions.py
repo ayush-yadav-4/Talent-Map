@@ -205,6 +205,7 @@ async def update_job_description(
 @router.post("/{jd_id}/analyze-gap", response_model=dict)
 async def analyze_gap_for_jd(
     jd_id: str,
+    employee_id: Optional[int] = Query(None, description="Provide to analyze a specific employee (HR/Admin only)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -218,12 +219,22 @@ async def analyze_gap_for_jd(
     if not jd:
         raise HTTPException(status_code=404, detail="JD not found")
 
+    # Determine target employee
+    target_emp_id = current_user.employee_id
+    if employee_id is not None:
+        if current_user.role not in ("org_admin", "hr_manager"):
+            raise HTTPException(status_code=403, detail="Not authorized to analyze other employees")
+        target_emp_id = employee_id
+
+    if not target_emp_id:
+        raise HTTPException(status_code=400, detail="No employee selected for analysis")
+
     # Fetch employee skills
     from app.models.analytics import EmployeeSkillScore, Skill
     scores_res = await db.execute(
         select(EmployeeSkillScore, Skill)
         .join(Skill, EmployeeSkillScore.skill_id == Skill.id)
-        .where(EmployeeSkillScore.employee_id == current_user.employee_id)
+        .where(EmployeeSkillScore.employee_id == target_emp_id)
     )
     
     employee_skills = []
@@ -239,7 +250,7 @@ async def analyze_gap_for_jd(
     # SAVE the result
     gap_record = JDGapAnalysis(
         id=uuid.uuid4(),
-        employee_id=current_user.employee_id,
+        employee_id=target_emp_id,
         jd_id=jid,
         fit_score=float(analysis.get("fit_score", 0)),
         analysis_results=analysis
@@ -249,6 +260,7 @@ async def analyze_gap_for_jd(
 
     return {
         "jd_title": jd.title,
+        "gap_id": str(gap_record.id),
         "analysis": analysis
     }
 
@@ -304,3 +316,103 @@ async def delete_jd(
     await db.execute(delete(JobDescription).where(JobDescription.id == jid))
     await db.commit()
     return {"success": True}
+
+@router.get("/gaps/{gap_id}/hire-vs-upskill", response_model=dict)
+async def analyze_hire_vs_upskill_endpoint(
+    gap_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role not in ("org_admin", "hr_manager"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    try:
+        gid = uuid.UUID(gap_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid gap id")
+
+    gap = await db.get(JDGapAnalysis, gid)
+    if not gap:
+        raise HTTPException(status_code=404, detail="Gap analysis not found")
+
+    emp = await db.get(Employee, gap.employee_id)
+    jd = await db.get(JobDescription, gap.jd_id)
+    if not emp or not jd:
+        raise HTTPException(status_code=404, detail="Employee or JD not found")
+
+    from app.models.analytics import EmployeeSkillScore, Skill, SkillEvidence
+    scores_res = await db.execute(
+        select(EmployeeSkillScore, Skill)
+        .join(Skill, EmployeeSkillScore.skill_id == Skill.id)
+        .where(EmployeeSkillScore.employee_id == gap.employee_id)
+    )
+    
+    employee_skills = [{"name": skill.canonical_name, "proficiency": score.proficiency_score} for score, skill in scores_res.all()]
+
+    evidence_res = await db.execute(
+        select(SkillEvidence, Skill)
+        .join(Skill, SkillEvidence.skill_id == Skill.id)
+        .where(SkillEvidence.employee_id == gap.employee_id)
+    )
+    
+    skill_evidences = []
+    for evidence, skill in evidence_res.all():
+        skill_evidences.append({
+            "skill_name": skill.canonical_name,
+            "source_type": evidence.source_type, # e.g. assessment, github, jira, self_declared, etc.
+            "proficiency_raw": evidence.proficiency_raw,
+            "evidence_snippet": evidence.evidence_snippet
+        })
+
+    employee_persona = {
+        "full_name": emp.full_name,
+        "job_title": emp.job_title,
+        "seniority_level": emp.seniority_level,
+        "years_of_experience": emp.years_of_experience,
+        "highest_qualification": emp.highest_qualification,
+        "clinical_specialization": emp.clinical_specialization,
+        "grade_band": emp.grade_band,
+        "project_status": emp.project_status,
+        "fit_score_for_target_role": gap.fit_score,
+        "aggregated_skills": employee_skills,
+        "skill_test_evidences": skill_evidences,
+        "identified_gaps_for_target_role": gap.analysis_results.get("gaps", []),
+        "salary_estimate": 75000
+    }
+
+    job_description = {
+        "title": jd.title,
+        "role_type": jd.role_type,
+        "requirements": jd.requirements
+    }
+
+    market_data = {
+        "avg_hire_cost": 15000,
+        "avg_hire_time_months": 3.0,
+        "avg_training_cost": 3000,
+        "market_salary": 90000
+    }
+
+    decision = GeminiService.analyze_hire_vs_upskill(
+        employee_persona=employee_persona,
+        job_description=job_description,
+        market_data=market_data
+    )
+
+    if not decision:
+         raise HTTPException(status_code=500, detail="Failed to analyze hire vs upskill")
+
+    decision_dict = decision.model_dump()
+    
+    # Store the decision in the gap analysis results
+    if not gap.analysis_results:
+        gap.analysis_results = {}
+    
+    updated_results = dict(gap.analysis_results)
+    updated_results["build_vs_buy"] = decision_dict
+    gap.analysis_results = updated_results
+    
+    await db.commit()
+
+    return decision_dict
+

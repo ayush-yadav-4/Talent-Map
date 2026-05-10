@@ -17,13 +17,14 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.database import get_db
 from app.deps import get_current_user, require_roles
 from app.config import settings
-from app.models.analytics import RoleProfile
+from app.models.analytics import RoleProfile, Skill, EmployeeSkillScore
 from app.models.department import Department
 from app.models.employee import Employee
 from app.models.integration_config import IntegrationConfig
 from app.models.organization import Organization
 from app.models.project import Project, ProjectAssignment
 from app.models.user import User
+from app.services.gemini_service import GeminiService
 from app.schemas.organization import (
     DepartmentCreate,
     DepartmentResponse,
@@ -849,6 +850,83 @@ async def remove_project_member(
     await db.flush()
     await _refresh_employee_project_status(db, employee_uuid)
     return {"deleted": True}
+
+@router.get("/{org_id}/projects/{project_id}/ai-recommendations", response_model=dict)
+async def get_project_team_recommendations(
+    org_id: str,
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("org_admin", "hr_manager")),
+) -> dict:
+    org_uuid = _parse_org_id(org_id)
+    _ensure_org_access(org_uuid, current_user)
+    project_uuid = _parse_uuid_or_422(project_id, "project id")
+
+    # 1. Get Project Details
+    project_res = await db.execute(select(Project).where(Project.id == project_uuid, Project.org_id == org_uuid))
+    project = project_res.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # 2. Get Potential Candidates
+    # Filter: bench OR < 2 projects
+    # We'll fetch all employees in org and their assignment counts
+    emp_res = await db.execute(
+        select(Employee, func.count(ProjectAssignment.id).label("assignment_count"))
+        .outerjoin(ProjectAssignment, Employee.id == ProjectAssignment.employee_id)
+        .where(Employee.org_id == org_uuid, Employee.is_active == True)
+        .group_by(Employee.id)
+    )
+    
+    candidates = []
+    candidate_ids = []
+    for emp, count in emp_res.all():
+        if emp.project_status == "bench" or count < 2:
+            candidates.append(emp)
+            candidate_ids.append(emp.id)
+
+    if not candidates:
+        return {"recommendations": [], "summary_analysis": "No suitable candidates found with available capacity."}
+
+    # 3. Get Skills for these candidates
+    skills_res = await db.execute(
+        select(EmployeeSkillScore, Skill)
+        .join(Skill, EmployeeSkillScore.skill_id == Skill.id)
+        .where(EmployeeSkillScore.employee_id.in_(candidate_ids))
+    )
+    
+    emp_skills_map = defaultdict(list)
+    for score, skill in skills_res.all():
+        emp_skills_map[score.employee_id].append({
+            "skill_name": skill.canonical_name,
+            "proficiency": score.proficiency_score
+        })
+
+    # 4. Format data for Gemini
+    project_data = {
+        "name": project.name,
+        "description": project.description,
+        "tech_stack": project.tech_stack,
+        "job_title": project.job_title if hasattr(project, 'job_title') else ""
+    }
+    
+    candidate_profiles = []
+    for emp in candidates:
+        candidate_profiles.append({
+            "employee_id": str(emp.id),
+            "employee_name": emp.full_name,
+            "seniority_level": emp.seniority_level,
+            "job_title": emp.job_title,
+            "skills": emp_skills_map[emp.id]
+        })
+
+    # 5. Call Gemini
+    recommendations = GeminiService.suggest_team_members(project_data, candidate_profiles)
+    
+    if not recommendations:
+        return {"recommendations": [], "summary_analysis": "AI analysis failed."}
+
+    return recommendations.model_dump()
 
 
 @router.get("/{org_id}/structure", response_model=dict)

@@ -6,7 +6,7 @@ import { agentApi } from "@/lib/api";
 import { Button } from "@/components/ui";
 import { Badge } from "@/components/ui";
 import { BookOpen, PlayCircle, ExternalLink, ChevronRight, Loader2, Award, Sparkles, GraduationCap } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, toRenderableText } from "@/lib/utils";
 import { cardSurfaceClass } from "@/lib/ui";
 import { AIAssessment } from "./AIAssessment";
 
@@ -57,19 +57,19 @@ export function LearningJourney({
             ) : (
               topGaps.map((gap: any) => (
                 <button
-                  key={gap.skill}
-                  onClick={() => setSelectedSkill(gap.skill)}
+                  key={toRenderableText(gap.skill)}
+                  onClick={() => setSelectedSkill(toRenderableText(gap.skill))}
                   className={cn(
                     "w-full text-left p-4 rounded-xl border transition-all duration-200 group",
-                    selectedSkill === gap.skill 
+                    selectedSkill === toRenderableText(gap.skill) 
                       ? "bg-emerald-50 border-emerald-300 dark:bg-emerald-900/10 dark:border-emerald-500 shadow-md" 
                       : "bg-white border-slate-200 hover:border-emerald-200 dark:bg-tw-card dark:border-tw-border"
                   )}
                 >
-                  <p className="text-sm font-bold text-slate-900 dark:text-tw-text">{gap.skill}</p>
+                  <p className="text-sm font-bold text-slate-900 dark:text-tw-text">{toRenderableText(gap.skill)}</p>
                   <div className="flex items-center justify-between mt-2">
                     <Badge variant="outline" className="text-[9px] py-0 border-amber-200 text-amber-700">Gap: {gap.gap.toFixed(1)}</Badge>
-                    <ChevronRight className={cn("h-3 w-3 text-slate-300 group-hover:text-emerald-500", selectedSkill === gap.skill && "text-emerald-500")} />
+                    <ChevronRight className={cn("h-3 w-3 text-slate-300 group-hover:text-emerald-500", selectedSkill === toRenderableText(gap.skill) && "text-emerald-500")} />
                   </div>
                 </button>
               ))

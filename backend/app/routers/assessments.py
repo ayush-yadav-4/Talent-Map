@@ -40,6 +40,16 @@ CURRENT_ASSESSMENT_TITLE_PREFIX = "Personalized Skills Assessment - "
 
 
 def _assessment_type_from_title(title: str) -> str:
+    if title.startswith("Problem Solving Test - "):
+        return "problem_solving"
+    if title.startswith("Scenario Test - "):
+        return "scenario_based"
+    if title.startswith("Psychometric Assessment - "):
+        return "psychometric"
+    if title.startswith("Communication Test - "):
+        return "communication"
+    if title.startswith("Experience Test - "):
+        return "experience"
     if title.startswith(SKILL_TEST_TITLE_PREFIX):
         return "skill_test"
     return "current_assessment"
@@ -603,6 +613,285 @@ async def generate_skill_test(
         "title": new_assessment.title,
         "questions_generated": len(questions),
         "skills_covered": [skill.canonical_name for _, skill in skill_rows],
+    }
+
+@router.post("/generate-problem-solving", response_model=dict)
+async def generate_problem_solving_test(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    employee_id = current_user.employee_id
+    if not employee_id:
+        raise HTTPException(status_code=400, detail="User is not an employee")
+
+    assessment_id = uuid.uuid4()
+    new_assessment = Assessment(
+        id=assessment_id,
+        org_id=current_user.org_id,
+        title=f"Problem Solving Test - {datetime.now().strftime('%b %d')}",
+    )
+    db.add(new_assessment)
+    await db.flush()
+
+    # Fetch employee to get job title
+    from app.models.employee import Employee
+    employee = await db.get(Employee, employee_id)
+    job_title = employee.job_title if employee else "Professional"
+
+    # Fetch skills
+    scores_res = await db.execute(
+        select(Skill)
+        .join(EmployeeSkillScore, EmployeeSkillScore.skill_id == Skill.id)
+        .where(EmployeeSkillScore.employee_id == employee_id)
+        .order_by(Skill.canonical_name.asc())
+        .limit(2)
+    )
+    skills = scores_res.scalars().all()
+
+    assessment_scope = _assessment_question_scope(assessment_id)
+    questions = []
+    
+    # 1. Field-related problem solving question
+    q1 = Question(
+        skill_id=skills[0].id if skills else uuid.uuid4(), # fallback if no skills
+        question_text=f"[Problem Solving] In your role as a {job_title}, how would you approach resolving a critical system failure under severe time constraints?",
+        question_type="mcq",
+        options=[
+            {"id": "opt_0", "text": "Panic and escalate immediately without checking logs."},
+            {"id": "opt_1", "text": "Systematically isolate the fault while communicating status to stakeholders."},
+            {"id": "opt_2", "text": "Try random fixes until something works."},
+            {"id": "opt_3", "text": "Wait for someone else to notice and fix it."}
+        ],
+        correct_answer_id="opt_1",
+        explanation="Systematic isolation and clear communication are key to crisis management.",
+        calibration_status="operational",
+        bloom_level="analyze",
+        sector=assessment_scope,
+        a_param=1.0, b_param=0.0, c_param=0.25
+    )
+    questions.append(q1)
+
+    # 2. Skill-specific experience question
+    if skills:
+        skill_name = skills[0].canonical_name
+        q2 = Question(
+            skill_id=skills[0].id,
+            question_text=f"[Experience] Based on standard industry experience with {skill_name}, what is the most robust way to handle edge-case validation?",
+            question_type="mcq",
+            options=[
+                {"id": "opt_0", "text": "Ignore edge cases as they rarely happen."},
+                {"id": "opt_1", "text": "Hardcode specific checks for known edge cases."},
+                {"id": "opt_2", "text": "Implement comprehensive unit tests and resilient fallback patterns."},
+                {"id": "opt_3", "text": "Leave validation to the user."}
+            ],
+            correct_answer_id="opt_2",
+            explanation="Comprehensive testing and fallbacks define experienced implementation.",
+            calibration_status="operational",
+            bloom_level="evaluate",
+            sector=assessment_scope,
+            a_param=1.1, b_param=0.2, c_param=0.25
+        )
+        questions.append(q2)
+
+    if len(skills) > 1:
+        skill_name2 = skills[1].canonical_name
+        q3 = Question(
+            skill_id=skills[1].id,
+            question_text=f"[Experience] When scaling an implementation involving {skill_name2}, what is the primary bottleneck usually encountered by experienced practitioners?",
+            question_type="mcq",
+            options=[
+                {"id": "opt_0", "text": "Syntax complexity."},
+                {"id": "opt_1", "text": "Resource management and state synchronization."},
+                {"id": "opt_2", "text": "Finding documentation."},
+                {"id": "opt_3", "text": "IDE performance."}
+            ],
+            correct_answer_id="opt_1",
+            explanation="Resource management is the classic scaling bottleneck.",
+            calibration_status="operational",
+            bloom_level="analyze",
+            sector=assessment_scope,
+            a_param=1.2, b_param=0.5, c_param=0.25
+        )
+        questions.append(q3)
+
+    for q in questions:
+        db.add(q)
+    await db.commit()
+
+    return {
+        "success": True,
+        "assessment_id": str(assessment_id),
+        "title": new_assessment.title,
+    }
+
+@router.post("/generate-scenario", response_model=dict)
+async def generate_scenario_test(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    employee_id = current_user.employee_id
+    if not employee_id:
+        raise HTTPException(status_code=400, detail="User is not an employee")
+
+    assessment_id = uuid.uuid4()
+    new_assessment = Assessment(
+        id=assessment_id,
+        org_id=current_user.org_id,
+        title=f"Scenario Test - {datetime.now().strftime('%b %d')}",
+    )
+    db.add(new_assessment)
+    await db.flush()
+
+    return {
+        "success": True,
+        "assessment_id": str(assessment_id),
+        "title": new_assessment.title,
+    }
+
+@router.post("/generate-psychometric", response_model=dict)
+async def generate_psychometric_test(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    employee_id = current_user.employee_id
+    if not employee_id:
+        raise HTTPException(status_code=400, detail="User is not an employee")
+
+    assessment_id = uuid.uuid4()
+    new_assessment = Assessment(
+        id=assessment_id,
+        org_id=current_user.org_id,
+        title=f"Psychometric Assessment - {datetime.now().strftime('%b %d')}",
+    )
+    db.add(new_assessment)
+    await db.flush()
+
+    return {
+        "success": True,
+        "assessment_id": str(assessment_id),
+        "title": new_assessment.title,
+    }
+
+@router.post("/generate-communication", response_model=dict)
+async def generate_communication_test(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    employee_id = current_user.employee_id
+    if not employee_id:
+        raise HTTPException(status_code=400, detail="User is not an employee")
+
+    assessment_id = uuid.uuid4()
+    new_assessment = Assessment(
+        id=assessment_id,
+        org_id=current_user.org_id,
+        title=f"Communication Test - {datetime.now().strftime('%b %d')}",
+    )
+    db.add(new_assessment)
+    await db.flush()
+
+    scores_res = await db.execute(select(Skill).join(EmployeeSkillScore, EmployeeSkillScore.skill_id == Skill.id).where(EmployeeSkillScore.employee_id == employee_id).limit(1))
+    skill = scores_res.scalars().first()
+    fallback_skill_id = skill.id if skill else uuid.uuid4()
+
+    assessment_scope = _assessment_question_scope(assessment_id)
+    questions = [
+        Question(
+            skill_id=fallback_skill_id,
+            question_text="[Communication] How should you structure an email updating stakeholders on a delayed project?",
+            question_type="mcq",
+            options=[
+                {"id": "opt_0", "text": "Bury the delay at the end of the email."},
+                {"id": "opt_1", "text": "State the delay clearly upfront, provide reasons, and propose a revised timeline."},
+                {"id": "opt_2", "text": "Blame another team for the delay."},
+                {"id": "opt_3", "text": "Avoid sending the email until the project is done."}
+            ],
+            correct_answer_id="opt_1",
+            explanation="Transparency and actionable revised plans are key to business communication.",
+            calibration_status="operational", bloom_level="apply", sector=assessment_scope,
+            a_param=1.0, b_param=0.0, c_param=0.25
+        ),
+        Question(
+            skill_id=fallback_skill_id,
+            question_text="[Business Etiquette] When joining a formal virtual meeting with clients, what is the best practice?",
+            question_type="mcq",
+            options=[
+                {"id": "opt_0", "text": "Join late to seem busy."},
+                {"id": "opt_1", "text": "Keep camera off and mic unmuted with background noise."},
+                {"id": "opt_2", "text": "Join on time, camera on, muted when not speaking, with a professional background."},
+                {"id": "opt_3", "text": "Eat lunch directly in front of the camera."}
+            ],
+            correct_answer_id="opt_2",
+            explanation="Professional presence is critical in client meetings.",
+            calibration_status="operational", bloom_level="understand", sector=assessment_scope,
+            a_param=0.9, b_param=-0.5, c_param=0.25
+        )
+    ]
+    for q in questions:
+        db.add(q)
+    await db.commit()
+
+    return {
+        "success": True,
+        "assessment_id": str(assessment_id),
+        "title": new_assessment.title,
+    }
+
+@router.post("/generate-experience", response_model=dict)
+async def generate_experience_test(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    employee_id = current_user.employee_id
+    if not employee_id:
+        raise HTTPException(status_code=400, detail="User is not an employee")
+
+    from app.models.employee import Employee
+    employee = await db.get(Employee, employee_id)
+    yoe = employee.years_of_experience if employee and employee.years_of_experience else 1
+
+    assessment_id = uuid.uuid4()
+    new_assessment = Assessment(
+        id=assessment_id,
+        org_id=current_user.org_id,
+        title=f"Experience Test - {datetime.now().strftime('%b %d')}",
+    )
+    db.add(new_assessment)
+    await db.flush()
+
+    scores_res = await db.execute(select(Skill).join(EmployeeSkillScore, EmployeeSkillScore.skill_id == Skill.id).where(EmployeeSkillScore.employee_id == employee_id).limit(1))
+    skill = scores_res.scalars().first()
+    skill_id = skill.id if skill else uuid.uuid4()
+    skill_name = skill.canonical_name if skill else "your primary skill"
+
+    assessment_scope = _assessment_question_scope(assessment_id)
+    level_term = "senior-level" if yoe >= 5 else ("mid-level" if yoe >= 3 else "entry-level")
+    
+    questions = [
+        Question(
+            skill_id=skill_id,
+            question_text=f"[Experience] Drawing on your {yoe} years of experience, how do you manage technical debt in {skill_name} at a {level_term} capacity?",
+            question_type="mcq",
+            options=[
+                {"id": "opt_0", "text": "Completely rewrite the codebase every 6 months."},
+                {"id": "opt_1", "text": "Advocate for dedicated refactoring sprints while balancing new feature delivery."},
+                {"id": "opt_2", "text": "Ignore technical debt; focus purely on shipping features."},
+                {"id": "opt_3", "text": "Leave comments in the code and hope someone else fixes it."}
+            ],
+            correct_answer_id="opt_1",
+            explanation="Balancing delivery and refactoring shows mature experience.",
+            calibration_status="operational", bloom_level="evaluate", sector=assessment_scope,
+            a_param=1.2, b_param=0.3, c_param=0.25
+        )
+    ]
+    for q in questions:
+        db.add(q)
+    await db.commit()
+
+    return {
+        "success": True,
+        "assessment_id": str(assessment_id),
+        "title": new_assessment.title,
     }
 
 

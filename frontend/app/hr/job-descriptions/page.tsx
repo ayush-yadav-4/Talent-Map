@@ -22,6 +22,7 @@ import { Button, Input } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { cardSurfaceClass, formInputClass } from "@/lib/ui";
 import { toast } from "sonner";
+import Link from "next/link";
 
 export default function HRJobDescriptionsPage() {
   const { ready } = useRequireAuth(["org_admin", "hr_manager"]);
@@ -195,16 +196,14 @@ export default function HRJobDescriptionsPage() {
                   <Briefcase className="h-5 w-5 text-brand-600" />
                 </div>
                 <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => {
-                      setSelectedJdId(jd.id);
-                      setIsEditingDetail(false);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 p-2 text-slate-400 hover:text-brand-600 transition-all"
-                    title="View details"
-                  >
-                    <Eye className="h-4 w-4" />
-                  </button>
+                  <Link href={`/hr/job-descriptions/${jd.id}`}>
+                    <button
+                      className="opacity-0 group-hover:opacity-100 p-2 text-slate-400 hover:text-brand-600 transition-all"
+                      title="View details"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </button>
+                  </Link>
                   <button
                     onClick={() => {
                       setSelectedJdId(jd.id);

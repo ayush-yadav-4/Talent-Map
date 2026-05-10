@@ -16,6 +16,9 @@ from app.models.integration_config import IntegrationConfig
 from app.models.organization import Organization
 from app.models.project import Project, ProjectAssignment
 from app.models.user import User
+from app.models.development import DevelopmentPlan, DevelopmentMilestone
+from app.models.job_description import JobDescription, JDGapAnalysis
+from app.models.psychometric import PsychometricResult
 
 __all__ = [
     "Organization",
@@ -35,4 +38,9 @@ __all__ = [
     "AssessmentResponse",
     "SkillEvidence",
     "IntegrationConfig",
+    "DevelopmentPlan",
+    "DevelopmentMilestone",
+    "JobDescription",
+    "JDGapAnalysis",
+    "PsychometricResult",
 ]

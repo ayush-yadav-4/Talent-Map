@@ -128,11 +128,11 @@ class CareerTrajectory(BaseModel):
 
 
 class TaxonomySeedSkill(BaseModel):
-    canonical_name: str = Field(..., max_length=500)
-    domain: str = Field(..., max_length=100)
-    sub_domain: Optional[str] = Field(None, max_length=100)
-    is_compliance: bool = False
-    description: Optional[str] = None
+    canonical_name: str
+    domain: str
+    sub_domain: Optional[str]
+    is_compliance: bool
+    description: Optional[str]
 
 
 class TaxonomySeedEnvelope(BaseModel):
@@ -142,18 +142,63 @@ class TaxonomySeedEnvelope(BaseModel):
 class MarketSkillSignal(BaseModel):
     skill_name: str
     trend: str  # rising | stable | declining
-    demand_level: int = Field(default=3)
-    why: str = ""
+    demand_level: int
+    why: str
 
 
 class MarketSignalsEnvelope(BaseModel):
     signals: List[MarketSkillSignal] = Field(default_factory=list)
 
 
-class LearningStyleResult(BaseModel):
-    dominant_trait: str = ""
-    learning_style: str = ""
-    summary: str = ""
+class TeamMemberSuggestion(BaseModel):
+    employee_id: str
+    employee_name: str
+    match_score: float # 0-100
+    seniority_match: bool
+    skill_alignment: List[str]
+    reasoning: str
+
+class TeamSuggestionResult(BaseModel):
+    recommendations: List[TeamMemberSuggestion]
+    summary_analysis: str
+
+class ReadinessScorecard(BaseModel):
+    role_fit_score: float # 0-100
+    promotion_fit_score: float # 0-100
+    internal_mobility_score: float # 0-100
+    critical_skills_missing: List[str]
+    strengths: List[str]
+    recommended_next_role: str
+    readiness_summary: str
+    mobility_recommendations: List[str]
+
+class LearningResource(BaseModel):
+    title: str
+    url: str
+    type: str # "Video", "Article", "Course", "Project"
+
+class IDPMilestone(BaseModel):
+    title: str
+    description: str
+    target_skills: List[str]
+    learning_resources: List[LearningResource]
+    due_date_relative_days: int
+    check_in_focus: str
+
+class IDPResult(BaseModel):
+    title: str
+    description: str
+    target_role: str
+    milestones: List[IDPMilestone]
+    summary: str
+
+class HireVsUpskillResult(BaseModel):
+    decision: str
+    upskill_cost_estimate: float
+    hire_cost_estimate: float
+    time_to_upskill_months: float
+    time_to_hire_months: float
+    reasoning: str
 
 
 class GeminiService:
@@ -789,3 +834,235 @@ Use only the provided numbers; do not invent extra dimensions.
                 "learning_style": "balanced",
                 "summary": "Could not derive profile.",
             }
+    @staticmethod
+    def suggest_team_members(project_data: Dict[str, Any], candidate_profiles: List[Dict[str, Any]]) -> Optional[TeamSuggestionResult]:
+        """
+        Suggests the best team members for a project based on skills, seniority, and availability.
+        """
+        if not GeminiService._gemini_configured():
+            return None
+            
+        model = genai.GenerativeModel(get_model_name())
+        
+        prompt = f"""
+        Analyze the following Project Requirements and a list of Available Candidate Profiles to suggest the best team.
+        
+        PROJECT REQUIREMENTS:
+        - Name: {project_data.get('name')}
+        - Description: {project_data.get('description')}
+        - Tech Stack: {project_data.get('tech_stack')}
+        - Job Title (if linked): {project_data.get('job_title')}
+        
+        CANDIDATE PROFILES:
+        {json.dumps(candidate_profiles)}
+        
+        INSTRUCTIONS:
+        1. For each candidate, calculate a 'match_score' (0-100) based on how well their skills and seniority align with the project.
+        2. Check if their seniority level matches the project's likely needs (seniority_match: bool).
+        3. Identify specific skills they have that align with the project's tech stack or description (skill_alignment: list).
+        4. Provide a concise 'reasoning' for each recommendation.
+        5. Provide a 'summary_analysis' of the overall team suitability.
+        6. Return the results in structured JSON matching the TeamSuggestionResult schema.
+        7. Only recommend candidates with a match_score > 60.
+        """
+        
+        try:
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=TeamSuggestionResult
+                )
+            )
+            return TeamSuggestionResult.model_validate_json(response.text)
+        except Exception as e:
+            logger.error(f"Error suggesting team members: {e}")
+            return None
+
+    @staticmethod
+    def analyze_readiness_scorecard(employee_data: Dict[str, Any], current_role_requirements: Dict[str, Any], next_level_requirements: Optional[Dict[str, Any]] = None) -> Optional[ReadinessScorecard]:
+        """
+        Generates a comprehensive readiness scorecard for an employee.
+        """
+        if not GeminiService._gemini_configured():
+            return None
+            
+        model = genai.GenerativeModel(get_model_name())
+        
+        prompt = f"""
+        Analyze the Career Readiness for the following employee:
+        
+        EMPLOYEE PROFILE:
+        - Name: {employee_data.get('full_name')}
+        - Current Job Title: {employee_data.get('job_title')}
+        - Seniority: {employee_data.get('seniority_level')}
+        - Skills: {json.dumps(employee_data.get('skills'))}
+        
+        CURRENT ROLE REQUIREMENTS:
+        {json.dumps(current_role_requirements)}
+        
+        NEXT LEVEL ROLE REQUIREMENTS (Optional):
+        {json.dumps(next_level_requirements) if next_level_requirements else "Standard next level for " + str(employee_data.get('job_title'))}
+        
+        INSTRUCTIONS:
+        1. Calculate role_fit_score (how well they fit their current role).
+        2. Calculate promotion_fit_score (how ready they are for the next seniority level or a lead role).
+        3. Calculate internal_mobility_score (how easily they could transition to a different department/domain based on transferable skills).
+        4. Identify critical_skills_missing for their growth.
+        5. Highlight their key strengths.
+        6. Recommend the 'recommended_next_role'.
+        7. Provide a concise 'readiness_summary'.
+        8. Provide 'mobility_recommendations' (other roles they could do).
+        9. Return the result in valid JSON matching the ReadinessScorecard schema.
+        """
+        
+        try:
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=ReadinessScorecard
+                )
+            )
+            return ReadinessScorecard.model_validate_json(response.text)
+        except Exception as e:
+            logger.error(f"Error analyzing readiness scorecard: {e}")
+            return None
+
+    @staticmethod
+    def generate_idp(employee_data: Dict[str, Any], skill_gaps: List[Dict[str, Any]], target_role: Optional[str] = None) -> Optional[IDPResult]:
+        """
+        Generates an Individualized Development Plan (IDP) based on skill gaps.
+        """
+        if not GeminiService._gemini_configured():
+            return None
+            
+        model = genai.GenerativeModel(get_model_name())
+        
+        prompt = f"""
+        Generate a professional Individualized Development Plan (IDP) for the following employee:
+        
+        EMPLOYEE:
+        - Name: {employee_data.get('full_name')}
+        - Current Job Title: {employee_data.get('job_title')}
+        - Seniority: {employee_data.get('seniority_level')}
+        - Current Skills: {json.dumps(employee_data.get('current_skills'))}
+        
+        SKILL GAPS IDENTIFIED:
+        {json.dumps(skill_gaps)}
+        
+        TARGET ROLE (Optional):
+        {target_role if target_role else "Growth in current role"}
+        
+        INSTRUCTIONS:
+        1. Create a 3-6 month development plan.
+        2. Return the result in valid JSON matching the IDPResult schema.
+        3. MANDATORY FIELDS (Must be present in JSON):
+           - title (str): A catchy title for the plan.
+           - description (str): Overall goal.
+           - target_role (str): The role being worked towards. Use an empty string if none.
+           - milestones (list): 3-5 milestones.
+             - Each milestone MUST have: title, description, target_skills (list of strings), learning_resources (list of objects with title, url, type), due_date_relative_days (int), and check_in_focus (str).
+           - summary (str): Concise closing.
+        """
+        
+        try:
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=IDPResult
+                )
+            )
+            
+            # Clean response text in case of markdown wrapping
+            text = response.text.strip()
+            if text.startswith("```json"):
+                text = text.replace("```json", "", 1).replace("```", "", 1).strip()
+            elif text.startswith("```"):
+                text = text.replace("```", "", 1).replace("```", "", 1).strip()
+                
+            return IDPResult.model_validate_json(text)
+        except Exception as e:
+            logger.error(f"Error generating IDP: {e}")
+            if 'response' in locals():
+                logger.error(f"Raw response text: {response.text}")
+            return None
+
+    @staticmethod
+    def analyze_hire_vs_upskill(
+        employee_persona: Dict[str, Any],
+        job_description: Dict[str, Any],
+        market_data: Dict[str, Any]
+    ) -> Optional[HireVsUpskillResult]:
+        """
+        Analyzes the cost and time trade-offs between upskilling an existing employee
+        and hiring a new external candidate for a role, using a detailed employee persona.
+        """
+        if not GeminiService._gemini_configured():
+            return None
+            
+        model = genai.GenerativeModel(get_model_name())
+        
+        prompt = f"""
+        Act as an HR Data Scientist. Analyze the decision to either UPSKILL an existing employee or HIRE a new candidate for a role.
+        
+        DETAILED EMPLOYEE PERSONA (For Upskilling):
+        - Name: {employee_persona.get('full_name')}
+        - Current Job Title: {employee_persona.get('job_title')}
+        - Seniority Level: {employee_persona.get('seniority_level')}
+        - Years of Experience: {employee_persona.get('years_of_experience')}
+        - Education/Qualification: {employee_persona.get('highest_qualification')}
+        - Clinical Spec: {employee_persona.get('clinical_specialization')}
+        - Grade Band: {employee_persona.get('grade_band')}
+        - Project Status: {employee_persona.get('project_status')}
+        - Fit Score for Target Role: {employee_persona.get('fit_score_for_target_role')}%
+        
+        EMPLOYEE SKILLS & TEST EVIDENCES:
+        - Aggregated Skills: {json.dumps(employee_persona.get('aggregated_skills'))}
+        - Test & Source Evidences (from Assessments, GitHub, Jira, etc.): {json.dumps(employee_persona.get('skill_test_evidences'))}
+        - Identified Gaps for Target Role: {json.dumps(employee_persona.get('identified_gaps_for_target_role'))}
+        
+        TARGET ROLE (For Hiring/Upskilling):
+        - Title: {job_description.get('title')}
+        - Role Type: {job_description.get('role_type')}
+        - Requirements: {job_description.get('requirements')}
+        
+        MARKET & COST DATA:
+        - Average cost to hire externally (sourcing, onboarding): {market_data.get('avg_hire_cost')}
+        - Average time to hire externally: {market_data.get('avg_hire_time_months')} months
+        - Average certification/training cost for gaps: {market_data.get('avg_training_cost')}
+        - Current employee salary estimate: {employee_persona.get('salary_estimate', 'Unknown')}
+        - Target role market salary: {market_data.get('market_salary', 'Unknown')}
+        
+        INSTRUCTIONS:
+        1. Consider the complete employee persona: their background, education, and years of experience to assess their 'trainability'.
+        2. Evaluate the 'Test & Source Evidences' to understand their true current skill level from various sources (assessments, peer reviews, technical tools like GitHub/Jira).
+        3. Compare the existing gaps with the time/cost to train them versus hiring a brand new employee. Ensure you research/estimate realistic market rates.
+        4. Make a 'decision' (must be exactly "Hire" or "Upskill").
+        5. Estimate 'upskill_cost_estimate' (numeric, realistic based on current market training costs for the gaps).
+        6. Estimate 'hire_cost_estimate' (numeric, realistic including recruitment fees 15-20% and onboarding).
+        7. Estimate 'time_to_upskill_months' (numeric).
+        8. Estimate 'time_to_hire_months' (numeric).
+        9. Provide a detailed 'reasoning'. **CRITICAL FORMATTING**: You MUST format the reasoning as Markdown bullet points (`- point`). DO NOT output a single paragraph. Include the following specific points in your output:
+           - **Employee Skill Gaps**: Detail what is missing.
+           - **Skills to Learn**: Exact skills they need to learn to match the required skill set.
+           - **Estimated Time**: Breakdown of time to upskill vs hire.
+           - **Cost Factors**: Breakdown of why the cost is estimated as such.
+           - **Final Verdict**: Why this decision is optimal.
+        10. Return valid JSON matching the HireVsUpskillResult schema.
+        """
+        
+        try:
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=HireVsUpskillResult
+                )
+            )
+            return HireVsUpskillResult.model_validate_json(response.text)
+        except Exception as e:
+            logger.error(f"Error analyzing hire vs upskill: {e}")
+            return None
+

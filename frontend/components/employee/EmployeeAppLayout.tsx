@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BriefcaseBusiness, BookOpenCheck, Home, LineChart, LogOut, MessageCircle, Trophy } from "lucide-react";
+import { BriefcaseBusiness, BookOpenCheck, Home, LineChart, LogOut, MessageCircle, Target, Trophy, UserCircle } from "lucide-react";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { clearAuth, orgApi, readStoredUser, type AuthUser } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -15,9 +15,11 @@ const links = [
   { href: "/employee/projects", label: "My Projects", icon: BriefcaseBusiness },
   { href: "/employee/coach", label: "AI Coach", icon: MessageCircle },
   { href: "/employee/job-descriptions", label: "Job Descriptions", icon: BriefcaseBusiness },
-  { href: "/employee/assessments", label: "My Assessments", icon: BriefcaseBusiness },
+  { href: "/employee/assessments", label: "My Assessments", icon: BookOpenCheck },
+  { href: "/employee/persona", label: "View My Persona", icon: UserCircle },
   { href: "/employee/scores", label: "Scores", icon: Trophy },
   { href: "/employee/course-suggestions", label: "Course Suggestions", icon: BookOpenCheck },
+  { href: "/employee/development", label: "Development Plan", icon: Target },
 ];
 
 export function EmployeeAppLayout({ children }: { children: React.ReactNode }) {
