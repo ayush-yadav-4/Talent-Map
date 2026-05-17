@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BriefcaseBusiness, BookOpenCheck, Home, LineChart, LogOut, MessageCircle, Target, Trophy, UserCircle } from "lucide-react";
+import { BriefcaseBusiness, BookOpenCheck, Home, LineChart, LogOut, MessageCircle, Trophy, UserCircle } from "lucide-react";
+import { AuthLoading } from "@/components/auth/AuthLoading";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
-import { clearAuth, orgApi, readStoredUser, type AuthUser } from "@/lib/api";
+import { EMPLOYEE_PORTAL_ROLES } from "@/lib/auth";
+import { useRequireAuth } from "@/hooks/useRequireAuth";
+import { clearAuth, orgApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const links = [
@@ -19,37 +21,35 @@ const links = [
   { href: "/employee/persona", label: "View My Persona", icon: UserCircle },
   { href: "/employee/scores", label: "Scores", icon: Trophy },
   { href: "/employee/course-suggestions", label: "Course Suggestions", icon: BookOpenCheck },
-  { href: "/employee/development", label: "Development Plan", icon: Target },
 ];
 
-export function EmployeeAppLayout({ children }: { children: React.ReactNode }) {
+function EmployeeAppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const onboarding = pathname?.startsWith("/employee/onboarding");
-  const [mounted, setMounted] = useState(false);
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const orgId = user?.org_id;
 
-  useEffect(() => {
-    setMounted(true);
-    setUser(readStoredUser());
-  }, []);
+  const { user, ready } = useRequireAuth({
+    allowedRoles: [...EMPLOYEE_PORTAL_ROLES],
+    portal: "employee",
+    loginPath: "/employee/login",
+  });
+
+  const orgId = user?.org_id;
 
   const { data: orgData } = useQuery({
     queryKey: ["employee-org", orgId],
     queryFn: async () => {
-      if (!orgId) return null;
-      const { data } = await orgApi.get(orgId);
+      const { data } = await orgApi.get(orgId!);
       return data as { name?: string };
     },
-    enabled: mounted && Boolean(orgId) && !onboarding,
+    enabled: ready && Boolean(orgId) && !onboarding,
   });
+
+  if (!ready) {
+    return <AuthLoading />;
+  }
 
   if (onboarding) {
     return <div className="min-h-screen bg-white dark:bg-tw-bg">{children}</div>;
-  }
-
-  if (!mounted) {
-    return <div className="min-h-screen bg-slate-50 dark:bg-tw-bg" />;
   }
 
   return (
@@ -101,4 +101,12 @@ export function EmployeeAppLayout({ children }: { children: React.ReactNode }) {
       </div>
     </div>
   );
+}
+
+export function EmployeeAppLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  if (pathname === "/employee/login") {
+    return <>{children}</>;
+  }
+  return <EmployeeAppShell>{children}</EmployeeAppShell>;
 }

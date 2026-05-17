@@ -12,6 +12,7 @@ class CoachState(TypedDict):
     messages: Annotated[List[BaseMessage], "The messages in the conversation"]
     employee_context: Dict[str, Any]
     org_context: Dict[str, Any]
+    rag_context: str
 
 class CoachService:
     """AI Coach; LLM is loaded only when GEMINI_API_KEY / GOOGLE_API_KEY is set."""
@@ -35,7 +36,9 @@ class CoachService:
         def coach_node(state: CoachState):
             messages = state["messages"]
             emp_ctx = state["employee_context"]
-            
+            rag_ctx = (state.get("rag_context") or "").strip()
+            rag_block = f"\n            Retrieved knowledge (use when relevant):\n            {rag_ctx}\n" if rag_ctx else ""
+
             # Construct system prompt with context
             system_prompt = f"""
             You are the TalentMap AI Coach. Your goal is to provide career guidance, skill development advice, 
@@ -46,7 +49,7 @@ class CoachService:
             - Job Title: {emp_ctx.get('job_title')}
             - Top Skills: {', '.join([s['name'] for s in emp_ctx.get('skills', [])[:5]])}
             - Recent Gaps: {', '.join([g['skill'] for g in emp_ctx.get('gaps', [])[:3]])}
-            
+            {rag_block}
             Instructions:
             1. Be professional, encouraging, and data-driven.
             2. Refer to the employee's specific skills and gaps when giving advice.
@@ -64,7 +67,13 @@ class CoachService:
 
         return workflow.compile()
 
-    async def chat(self, user_message: str, history: List[BaseMessage], employee_context: Dict[str, Any]) -> str:
+    async def chat(
+        self,
+        user_message: str,
+        history: List[BaseMessage],
+        employee_context: Dict[str, Any],
+        rag_context: str = "",
+    ) -> str:
         if self.graph is None or self.llm is None:
             raise HTTPException(
                 status_code=503,
@@ -77,6 +86,7 @@ class CoachService:
             "messages": history + [HumanMessage(content=user_message)],
             "employee_context": employee_context,
             "org_context": {},
+            "rag_context": rag_context,
         }
 
         result = await self.graph.ainvoke(state)

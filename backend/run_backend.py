@@ -19,7 +19,8 @@ def main() -> None:
 
     host = os.getenv("BACKEND_HOST", "127.0.0.1")
     port = int(os.getenv("BACKEND_PORT", "8001"))
-    reload_enabled = _bool_env("BACKEND_RELOAD", True)
+    default_reload = os.getenv("APP_ENV", "development").strip().lower() == "development"
+    reload_enabled = _bool_env("BACKEND_RELOAD", default_reload)
 
     uvicorn.run(
         "app.main:app",

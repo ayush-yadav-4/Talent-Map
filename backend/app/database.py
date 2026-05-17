@@ -25,11 +25,29 @@ def _async_database_url(url: str) -> str:
     return u
 
 
+def _engine_connect_args() -> dict:
+    """psycopg v3 connect kwargs tuned for API workloads."""
+    app_name = settings.app_name.replace(" ", "_").lower()
+    # psycopg v3 does not accept asyncpg's server_settings dict; use -c GUC flags.
+    options = (
+        f"-c application_name={app_name} "
+        f"-c statement_timeout={settings.database_statement_timeout_ms}"
+    )
+    return {
+        "connect_timeout": settings.database_connect_timeout,
+        "options": options,
+    }
+
+
 engine = create_async_engine(
     _async_database_url(settings.database_url),
     pool_size=settings.database_pool_size,
     max_overflow=settings.database_max_overflow,
+    pool_use_lifo=True,
     pool_pre_ping=True,
+    pool_recycle=settings.database_pool_recycle,
+    pool_timeout=settings.database_pool_timeout,
+    connect_args=_engine_connect_args(),
 )
 
 AsyncSessionLocal = async_sessionmaker(

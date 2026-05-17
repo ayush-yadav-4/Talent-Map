@@ -25,6 +25,7 @@ interface ExtractedSkill {
   proficiency_estimate: number;
   evidence_found: string;
   is_technical: boolean;
+  years_of_experience?: number;
 }
 
 function toRenderableText(value: unknown): string {
@@ -320,7 +321,7 @@ export default function EmployeeSkillsPage() {
                 <AlertCircle className="h-10 w-10 text-amber-500 mx-auto mb-4" />
                 <h3 className="font-bold text-slate-900">Your profile is missing skills</h3>
                 <p className="text-sm text-slate-600 mt-1 max-w-md mx-auto">
-                  We couldn't find many skills on your profile. Upload a resume or add them manually above to get started with assessments.
+                  We could not find many skills on your profile. Upload a resume or add them manually above to get started with assessments.
                 </p>
               </div>
             )

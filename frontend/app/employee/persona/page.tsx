@@ -3,23 +3,21 @@
 import { useQuery } from "@tanstack/react-query";
 import { employeeApi, api } from "@/lib/api";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardHeader, CardTitle, CardContent, Badge, Button } from "@/components/ui";
 import { Loader2, BrainCircuit, Activity, Target, AlertCircle, TrendingUp, Sparkles, UserCircle } from "lucide-react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
 
 export default function PersonaPage() {
-  const { ready } = useRequireAuth(["employee"]);
+  const { ready, user } = useRequireAuth(["employee"]);
+  const employeeId = user?.employee_id;
 
-  // Fetch employee profile
   const { data: profile, isLoading: loadingProfile } = useQuery({
-    queryKey: ["employee-me"],
+    queryKey: ["employee-profile", employeeId],
     queryFn: async () => {
-      const { data } = await employeeApi.me();
+      const { data } = await employeeApi.getProfile(employeeId!);
       return data as any;
     },
-    enabled: ready,
+    enabled: ready && Boolean(employeeId),
   });
 
   // Fetch their assessment scores
@@ -35,6 +33,9 @@ export default function PersonaPage() {
   if (!ready || loadingProfile || loadingScores) {
     return <div className="flex justify-center p-20"><Loader2 className="h-10 w-10 animate-spin text-brand-500" /></div>;
   }
+
+  const employee = profile?.employee;
+  const skillScores = (profile?.skill_scores ?? []) as { skill_name?: string; canonical_name?: string }[];
 
   // Determine if assessments have been taken based on scores
   const takenPsychometric = scores?.some(s => s.assessment_type === "psychometric");
@@ -99,15 +100,15 @@ export default function PersonaPage() {
           <CardContent className="space-y-4">
             <div>
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Role</p>
-              <p className="text-base font-semibold text-slate-900 dark:text-white">{profile?.job_title || "Unassigned"}</p>
+              <p className="text-base font-semibold text-slate-900 dark:text-white">{employee?.job_title || "Unassigned"}</p>
             </div>
             <div>
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Seniority</p>
-              <p className="text-base font-semibold text-slate-900 dark:text-white">{profile?.seniority_level || "Not specified"}</p>
+              <p className="text-base font-semibold text-slate-900 dark:text-white">{employee?.seniority_level || "Not specified"}</p>
             </div>
             <div>
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Experience</p>
-              <p className="text-base font-semibold text-slate-900 dark:text-white">{profile?.years_of_experience || 0} Years</p>
+              <p className="text-base font-semibold text-slate-900 dark:text-white">{employee?.years_of_experience ?? 0} Years</p>
             </div>
           </CardContent>
         </Card>
@@ -125,9 +126,9 @@ export default function PersonaPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {profile?.skills && profile.skills.length > 0 ? (
+            {skillScores.length > 0 ? (
               <div className="flex flex-wrap gap-2">
-                {profile.skills.map((skill: any, idx: number) => (
+                {skillScores.map((skill: { skill_name?: string; canonical_name?: string }, idx: number) => (
                   <Badge key={idx} variant="secondary" className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                     {skill.skill_name || skill.canonical_name || "Skill"}
                   </Badge>
@@ -162,14 +163,14 @@ export default function PersonaPage() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between border-b pb-2">
                   <span className="text-sm text-slate-500">Learning Style</span>
-                  <span className="font-semibold text-purple-600">{profile?.psychometric?.learning_style || "Visual"}</span>
+                  <span className="font-semibold text-purple-600">Visual</span>
                 </div>
                 <div className="flex items-center justify-between border-b pb-2">
                   <span className="text-sm text-slate-500">Dominant Trait</span>
-                  <span className="font-semibold text-purple-600">{profile?.psychometric?.dominant_trait || "Analytical"}</span>
+                  <span className="font-semibold text-purple-600">Analytical</span>
                 </div>
                 <p className="text-xs text-slate-500 italic mt-2">
-                  {profile?.psychometric?.summary || "Your profile indicates a strong analytical mindset combined with structured learning patterns."}
+                  Your profile indicates a strong analytical mindset combined with structured learning patterns.
                 </p>
               </div>
             ) : (
@@ -230,3 +231,4 @@ export default function PersonaPage() {
     </div>
   );
 }
+

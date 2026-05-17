@@ -2,6 +2,7 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, Body, HTTPException
 from app.services.coach_service import CoachService
 from app.services.history_service import history_service
+from app.services.rag_service import rag_service
 from app.deps import get_current_user
 from app.models.user import User
 from app.models.employee import Employee
@@ -90,10 +91,15 @@ async def coach_chat(
         for score, skill in skills_res.all():
             context["skills"].append({"name": skill.canonical_name, "proficiency": score.proficiency_score})
 
-    # 4. Generate response
-    response_text = await coach_service.chat(message, langchain_history, context)
+    # 4. Optional RAG context (Gemini embeddings + Pinecone)
+    rag_context = ""
+    if rag_service.is_ready and employee_id:
+        rag_context = await rag_service.retrieve_employee_context(str(employee_id), message, k=4)
+
+    # 5. Generate response
+    response_text = await coach_service.chat(message, langchain_history, context, rag_context=rag_context)
     
-    # 5. Save to MongoDB
+    # 6. Save to MongoDB
     await history_service.add_message(session_id, "user", message)
     await history_service.add_message(session_id, "assistant", response_text)
     

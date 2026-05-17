@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { isAxiosError } from "axios";
@@ -10,6 +10,9 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Logo } from "@/components/site/Logo";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { AuthLoading } from "@/components/auth/AuthLoading";
+import { useRedirectIfAuthenticated } from "@/hooks/useRequireAuth";
+import { consumeAuthMessage, consumeReturnTo, homePathForUser } from "@/lib/auth";
 import { login, persistAuth } from "@/lib/api";
 import { cardSurfaceClass, formInputClass, formLabelClass } from "@/lib/ui";
 import { cn } from "@/lib/utils";
@@ -21,25 +24,19 @@ const schema = z.object({
 
 type Form = z.infer<typeof schema>;
 
-function postLoginRedirect(role: string, onboarded: boolean, step: number, mustChangePassword: boolean) {
-  if (mustChangePassword) return "/change-password";
-  if (!onboarded) {
-    if (role === "org_admin" || role === "hr_manager") {
-      const s = Math.min(5, Math.max(2, step || 2));
-      return `/hr/onboarding/step${s}`;
-    }
-    if (role === "employee") {
-      const s = Math.min(4, Math.max(1, step || 1));
-      return `/employee/onboarding/step${s}`;
-    }
-  }
-  if (role === "org_admin" || role === "hr_manager" || role === "manager") return "/hr/dashboard";
-  return "/employee/dashboard";
+function isSafeReturnPath(path: string): boolean {
+  return path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/login");
 }
 
 export default function LoginPage() {
   const router = useRouter();
+  const { checking } = useRedirectIfAuthenticated("/login");
   const [apiError, setApiError] = useState<string | null>(null);
+  const [sessionMessage, setSessionMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSessionMessage(consumeAuthMessage());
+  }, []);
 
   const { register, handleSubmit, formState } = useForm<Form>({
     resolver: zodResolver(schema),
@@ -51,7 +48,10 @@ export default function LoginPage() {
     try {
       const res = await login({ email: values.email.trim().toLowerCase(), password: values.password });
       persistAuth(res);
-      router.push(postLoginRedirect(res.user.role, res.user.onboarding_completed, res.user.onboarding_step, res.user.must_change_password));
+      const returnTo = consumeReturnTo();
+      const destination =
+        returnTo && isSafeReturnPath(returnTo) ? returnTo : homePathForUser(res.user);
+      router.push(destination);
     } catch (e: unknown) {
       if (isAxiosError(e)) {
         const detail = (e.response?.data as { detail?: string })?.detail;
@@ -64,6 +64,10 @@ export default function LoginPage() {
 
   const inputClass = cn(formInputClass, "pl-9");
 
+  if (checking) {
+    return <AuthLoading label="Redirecting…" />;
+  }
+
   return (
     <div className="min-h-screen bg-hero-mesh dark:bg-hero-mesh-dark">
       <div className="mx-auto flex max-w-md flex-col gap-6 px-4 py-8 sm:px-6 sm:py-12">
@@ -73,6 +77,11 @@ export default function LoginPage() {
         </div>
         <div className={cn(cardSurfaceClass, "p-8 shadow-xl")}>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-tw-text">Sign in</h1>
+          {sessionMessage && (
+            <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100">
+              {sessionMessage}
+            </p>
+          )}
           <p className="mt-2 text-sm text-slate-600 dark:text-tw-muted">
             Use your work email and password. New organization?{" "}
             <Link href="/onboarding" className="font-medium text-brand-700 hover:underline dark:text-tw-blue">

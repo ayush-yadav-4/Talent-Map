@@ -150,6 +150,63 @@ async def list_taxonomy(
     }
 
 
+@router.post("/taxonomy/trending-domains")
+async def suggest_trending_domains(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("org_admin", "hr_manager")),
+    limit: int = Query(6, ge=3, le=10),
+) -> dict[str, Any]:
+    """On-demand LLM: trending skill domains scoped to the organization's sector and focus."""
+    if not (settings.gemini_api_key or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="GEMINI_API_KEY is required for domain suggestions.",
+        )
+
+    org_row = await db.execute(
+        select(Organization.sector, Organization.sub_sector, Organization.domain).where(
+            Organization.id == current_user.org_id
+        )
+    )
+    org = org_row.one_or_none()
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+    sec = normalize_sector(org.sector)
+    preset_domains = domains_for_sector(sec)
+
+    dom_res = await db.execute(
+        select(Skill.domain)
+        .where(_sector_taxonomy_filter(sec))
+        .where(Skill.domain.isnot(None))
+        .distinct()
+        .order_by(Skill.domain.asc())
+    )
+    existing_domains = [r[0] for r in dom_res.all() if r[0]]
+
+    suggestions = GeminiService.suggest_trending_domains(
+        sector=sec,
+        sub_sector=org.sub_sector,
+        org_domain=org.domain,
+        existing_domains=existing_domains,
+        preset_domains=preset_domains,
+        limit=limit,
+    )
+    if not suggestions:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not generate domain suggestions. Check Gemini configuration.",
+        )
+
+    return {
+        "sector": sec,
+        "sub_sector": org.sub_sector,
+        "org_domain": org.domain,
+        "existing_domains": existing_domains,
+        "suggestions": suggestions,
+    }
+
+
 @router.post("/taxonomy/seed", status_code=status.HTTP_201_CREATED)
 async def seed_taxonomy(
     payload: TaxonomySeedRequest,

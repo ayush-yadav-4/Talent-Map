@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node ./scripts/clean-cache.mjs && next dev",
     "clean": "node ./scripts/clean-cache.mjs",
-    "dev:clean": "npm run clean && next dev",
+    "dev:clean": "npm run dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

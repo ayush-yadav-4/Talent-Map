@@ -188,43 +188,47 @@ export default function HrPsychometricsPage() {
         </div>
         {assessmentType === "DISC" ? (
           <div className="mt-4 grid gap-3 sm:grid-cols-4">
-            {[
-              ["D", dScore, setDScore],
-              ["I", iScore, setIScore],
-              ["S", sScore, setSScore],
-              ["C", cScore, setCScore],
-            ].map(([label, val, set]) => (
-              <label key={String(label)} className="text-xs font-medium text-slate-600 dark:text-tw-muted">
+            {(
+              [
+                { label: "D", val: dScore, set: setDScore },
+                { label: "I", val: iScore, set: setIScore },
+                { label: "S", val: sScore, set: setSScore },
+                { label: "C", val: cScore, set: setCScore },
+              ] as const
+            ).map(({ label, val, set }) => (
+              <label key={label} className="text-xs font-medium text-slate-600 dark:text-tw-muted">
                 {label}
                 <Input
                   type="number"
                   min={0}
                   max={100}
                   className="mt-1"
-                  value={val as number}
-                  onChange={(e) => (set as React.Dispatch<React.SetStateAction<number>>)(Number(e.target.value))}
+                  value={val}
+                  onChange={(e) => set(Number(e.target.value))}
                 />
               </label>
             ))}
           </div>
         ) : (
           <div className="mt-4 grid gap-3 sm:grid-cols-5">
-            {[
-              ["O", oScore, setOScore],
-              ["C", cBf, setCBf],
-              ["E", eScore, setEScore],
-              ["A", aScore, setAScore],
-              ["N", nScore, setNScore],
-            ].map(([label, val, set]) => (
-              <label key={String(label)} className="text-xs font-medium text-slate-600 dark:text-tw-muted">
+            {(
+              [
+                { label: "O", val: oScore, set: setOScore },
+                { label: "C", val: cBf, set: setCBf },
+                { label: "E", val: eScore, set: setEScore },
+                { label: "A", val: aScore, set: setAScore },
+                { label: "N", val: nScore, set: setNScore },
+              ] as const
+            ).map(({ label, val, set }) => (
+              <label key={label} className="text-xs font-medium text-slate-600 dark:text-tw-muted">
                 {label}
                 <Input
                   type="number"
                   min={0}
                   max={100}
                   className="mt-1"
-                  value={val as number}
-                  onChange={(e) => (set as React.Dispatch<React.SetStateAction<number>>)(Number(e.target.value))}
+                  value={val}
+                  onChange={(e) => set(Number(e.target.value))}
                 />
               </label>
             ))}

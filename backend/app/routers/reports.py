@@ -593,12 +593,11 @@ async def get_employee_readiness_scorecard(
 
     # 3. Get Current Role Requirements (if possible)
     # We'll look for a RoleProfile matching the employee's job_title
-    role_res = await db.execute(
-        select(RoleProfile).where(
-            RoleProfile.org_id == current_user.org_id,
-            func.lower(RoleProfile.job_title) == emp.job_title.lower() if emp.job_title else ""
-        )
-    )
+    role_filters = [RoleProfile.org_id == current_user.org_id]
+    if emp.job_title:
+        role_filters.append(func.lower(RoleProfile.job_title) == emp.job_title.lower())
+
+    role_res = await db.execute(select(RoleProfile).where(*role_filters))
     role = role_res.scalar_one_or_none()
     
     current_reqs = {}

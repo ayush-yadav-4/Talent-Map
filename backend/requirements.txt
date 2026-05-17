@@ -28,4 +28,5 @@ faiss-cpu>=1.9.0
 numpy>=1.26.0
 langgraph>=0.2.0
 langchain-google-genai>=2.0.0
+pinecone>=5.4.0,<7
 motor>=3.6.0

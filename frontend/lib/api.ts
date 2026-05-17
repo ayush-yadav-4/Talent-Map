@@ -1,4 +1,5 @@
 import axios, { type AxiosInstance } from "axios";
+import { redirectToLogin } from "@/lib/auth";
 
 /**
  * Dev (browser): same-origin (`""`) → Next.js rewrites `/api/v1/*` to FastAPI (see next.config.mjs).
@@ -52,13 +53,19 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
     const requestUrl = String(originalRequest?.url ?? "");
-    if (error?.response?.status !== 401) {
+    const status = error?.response?.status;
+
+    if (status === 403) {
+      redirectToLogin(window.location.pathname, "You are not authorized to access this resource. Please sign in again.");
+      return Promise.reject(error);
+    }
+
+    if (status !== 401) {
       return Promise.reject(error);
     }
 
     if (requestUrl.includes("/api/v1/auth/refresh")) {
-      clearAuth();
-      window.location.href = "/login";
+      redirectToLogin(window.location.pathname, "Your session has expired. Please sign in again.");
       return Promise.reject(error);
     }
 
@@ -68,8 +75,7 @@ api.interceptors.response.use(
 
     const refreshToken = sessionStorage.getItem("tm_refresh_token");
     if (!refreshToken) {
-      clearAuth();
-      window.location.href = "/login";
+      redirectToLogin(window.location.pathname, "Your session has expired. Please sign in again.");
       return Promise.reject(error);
     }
 
@@ -90,8 +96,7 @@ api.interceptors.response.use(
       originalRequest.headers.Authorization = `Bearer ${refreshed.access_token}`;
       return api.request(originalRequest);
     } catch (refreshError) {
-      clearAuth();
-      window.location.href = "/login";
+      redirectToLogin(window.location.pathname, "Your session has expired. Please sign in again.");
       return Promise.reject(refreshError);
     }
   },
@@ -212,6 +217,9 @@ export async function refreshSession(refreshToken: string): Promise<TokenRespons
 
 export async function fetchMe(): Promise<AuthUser> {
   const { data } = await api.get<AuthUser>("/api/v1/auth/me");
+  if (typeof window !== "undefined" && sessionStorage.getItem("tm_access_token")) {
+    sessionStorage.setItem("tm_user", JSON.stringify(data));
+  }
   return data;
 }
 
@@ -271,6 +279,8 @@ export const skillApi = {
   taxonomyList: (params?: { sector?: string; domain?: string; page?: number; limit?: number }) =>
     api.get("/api/v1/skills/taxonomy", { params }),
   taxonomySeed: (body?: { sector?: string; count?: number }) => api.post("/api/v1/skills/taxonomy/seed", body ?? {}),
+  trendingDomains: (params?: { limit?: number }) =>
+    api.post("/api/v1/skills/taxonomy/trending-domains", null, { params }),
   taxonomyAdd: (body: {
     canonical_name: string;
     domain: string;

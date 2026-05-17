@@ -4,33 +4,25 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { isAxiosError } from "axios";
 import { Lock } from "lucide-react";
-import { api, fetchMe, readStoredUser } from "@/lib/api";
+import { AuthLoading } from "@/components/auth/AuthLoading";
+import { useRequireAuth } from "@/hooks/useRequireAuth";
+import { homePathForUser } from "@/lib/auth";
+import { api, fetchMe } from "@/lib/api";
 import { cardSurfaceClass, formInputClass, formLabelClass } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 
-function nextRouteForUser(role: string, onboardingCompleted: boolean, onboardingStep: number): string {
-  if (!onboardingCompleted) {
-    if (role === "employee") {
-      const step = Math.min(4, Math.max(1, onboardingStep || 1));
-      return `/employee/onboarding/step${step}`;
-    }
-    if (role === "org_admin" || role === "hr_manager" || role === "manager") {
-      const step = Math.min(5, Math.max(2, onboardingStep || 2));
-      return `/hr/onboarding/step${step}`;
-    }
-  }
-  return role === "employee" ? "/employee/dashboard" : "/hr/dashboard";
-}
-
 export default function ChangePasswordPage() {
   const router = useRouter();
+  const { user, ready } = useRequireAuth({ skipPasswordChangeRedirect: true, portal: "any" });
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const user = readStoredUser();
+  if (!ready) {
+    return <AuthLoading />;
+  }
 
   const submit = async () => {
     if (!currentPassword || !newPassword) {
@@ -54,12 +46,7 @@ export default function ChangePasswordPage() {
         new_password: newPassword,
       });
       const refreshedUser = await fetchMe();
-      const access = sessionStorage.getItem("tm_access_token");
-      const refresh = sessionStorage.getItem("tm_refresh_token");
-      if (access && refresh) {
-        sessionStorage.setItem("tm_user", JSON.stringify(refreshedUser));
-      }
-      router.push(nextRouteForUser(refreshedUser.role, refreshedUser.onboarding_completed, refreshedUser.onboarding_step));
+      router.push(homePathForUser(refreshedUser));
     } catch (err) {
       if (isAxiosError(err)) {
         const detail = (err.response?.data as { detail?: string })?.detail;

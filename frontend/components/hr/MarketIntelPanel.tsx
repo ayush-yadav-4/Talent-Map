@@ -1,10 +1,12 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { TrendingDown, TrendingUp, Minus, Loader2 } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
+import { TrendingDown, TrendingUp, Minus, Loader2, Sparkles } from "lucide-react";
 import { agentApi } from "@/lib/api";
+import { Button } from "@/components/ui";
 import { cardSurfaceClass } from "@/lib/ui";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 export type MarketSignal = {
   skill_name: string;
@@ -28,9 +30,8 @@ function trendIcon(trend: string) {
 }
 
 export function MarketIntelPanel({ sector, roleHint, limit = 5, className }: Props) {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["market-signals", sector, roleHint, limit],
-    queryFn: async () => {
+  const fetchMutation = useMutation({
+    mutationFn: async () => {
       const { data: d } = await agentApi.marketSignals({
         sector: sector || undefined,
         role: roleHint || "General workforce",
@@ -38,28 +39,55 @@ export function MarketIntelPanel({ sector, roleHint, limit = 5, className }: Pro
       });
       return d as { sector: string; signals: MarketSignal[] };
     },
-    enabled: Boolean(sector),
+    onError: () => toast.error("Could not load market signals — check Gemini API key."),
   });
+
+  const data = fetchMutation.data;
+  const signals = data?.signals ?? [];
 
   return (
     <div className={cn(cardSurfaceClass, "p-4 shadow-sm", className)}>
-      <h2 className="text-sm font-semibold text-slate-900 dark:text-tw-text">Market intelligence</h2>
-      <p className="mt-1 text-xs text-slate-500 dark:text-tw-muted">
-        AI-synthesized skill demand signals for sector <span className="font-medium">{data?.sector ?? sector ?? "—"}</span>.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-tw-text">Market intelligence</h2>
+          <p className="mt-1 text-xs text-slate-500 dark:text-tw-muted">
+            Optional skill demand signals for sector{" "}
+            <span className="font-medium">{data?.sector ?? sector ?? "—"}</span>.
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={!sector || fetchMutation.isPending}
+          onClick={() => fetchMutation.mutate()}
+          className="gap-1.5 shrink-0"
+        >
+          {fetchMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <Sparkles className="h-4 w-4" aria-hidden />
+          )}
+          Load signals
+        </Button>
+      </div>
+
       {!sector && (
         <p className="mt-3 text-xs text-amber-700 dark:text-amber-200">Set organization sector to load signals.</p>
       )}
-      {isLoading && sector && (
-        <div className="mt-6 flex justify-center py-6">
-          <Loader2 className="h-6 w-6 animate-spin text-brand-500" aria-hidden />
-        </div>
+
+      {sector && !fetchMutation.isPending && signals.length === 0 && !fetchMutation.isError && (
+        <p className="mt-4 text-xs text-slate-500 dark:text-tw-muted">
+          Click <span className="font-medium">Load signals</span> when you need market context — no automatic AI calls.
+        </p>
       )}
-      {error && (
+
+      {fetchMutation.isError && (
         <p className="mt-3 text-xs text-red-600 dark:text-red-300">Could not load market signals.</p>
       )}
+
       <ul className="mt-4 space-y-3">
-        {(data?.signals ?? []).map((s, i) => (
+        {signals.map((s, i) => (
           <li
             key={`${s.skill_name}-${i}`}
             className="flex gap-3 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2 dark:border-tw-border dark:bg-tw-raised"
@@ -75,9 +103,6 @@ export function MarketIntelPanel({ sector, roleHint, limit = 5, className }: Pro
           </li>
         ))}
       </ul>
-      {!isLoading && sector && !(data?.signals?.length ?? 0) && !error && (
-        <p className="mt-3 text-xs text-slate-500 dark:text-tw-muted">No signals (check Gemini API key).</p>
-      )}
     </div>
   );
 }

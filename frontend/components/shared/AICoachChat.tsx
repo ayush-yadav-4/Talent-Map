@@ -99,7 +99,7 @@ export function AICoachChat() {
                 <div className="h-12 w-12 bg-brand-100 dark:bg-tw-blue/20 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Sparkles className="h-6 w-6 text-brand-600 dark:text-tw-blue" />
                 </div>
-                <p className="text-sm font-medium text-slate-900 dark:text-tw-text">Hello! I'm your career coach.</p>
+                <p className="text-sm font-medium text-slate-900 dark:text-tw-text">Hello! I&apos;m your career coach.</p>
                 <p className="text-xs text-slate-500 dark:text-tw-muted mt-2">
                   Ask me about your skill gaps, career path, or how to prepare for your next project.
                 </p>

@@ -69,7 +69,7 @@ export function CareerTrajectory({ employeeId: employeeIdProp }: CareerTrajector
             </div>
             
             <h3 className="text-lg font-bold text-slate-900 dark:text-tw-text mb-1">Predicted: {milestone.predicted_role}</h3>
-            <p className="text-xs text-slate-500 mb-4 italic">"{trajectory.current_path}"</p>
+            <p className="text-xs text-slate-500 mb-4 italic">&quot;{trajectory.current_path}&quot;</p>
 
             <div className="space-y-3">
               <p className="text-[10px] font-bold uppercase text-slate-400">Target Skills to Acquire:</p>

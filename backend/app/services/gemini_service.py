@@ -150,6 +150,18 @@ class MarketSignalsEnvelope(BaseModel):
     signals: List[MarketSkillSignal] = Field(default_factory=list)
 
 
+class TrendingDomainItem(BaseModel):
+    domain_name: str
+    trend: str  # rising | emerging | stable
+    relevance_score: int  # 1-5
+    rationale: str
+    example_skills: List[str] = Field(default_factory=list)
+
+
+class TrendingDomainsEnvelope(BaseModel):
+    domains: List[TrendingDomainItem] = Field(default_factory=list)
+
+
 class TeamMemberSuggestion(BaseModel):
     employee_id: str
     employee_name: str
@@ -510,32 +522,32 @@ class GeminiService:
             return None
 
     @staticmethod
-    def get_embedding(text: str) -> List[float]:
+    def get_embedding(text: str, task_type: str = "retrieval_document") -> List[float]:
         """
         Generates a vector embedding for the given text using Gemini.
+        Use retrieval_document when indexing content; retrieval_query when searching.
         """
-        try:
-            # First try text-embedding-004
-            result = genai.embed_content(
-                model="models/text-embedding-004",
-                content=text,
-                task_type="retrieval_document"
-            )
-            return result['embedding']
-        except Exception as e:
-            logger.warning(f"Error generating 004 embedding: {e}. Trying fallback models/embedding-001.")
+        if not (text or "").strip():
+            return []
+        if not GeminiService._gemini_configured():
+            return []
+
+        primary = (settings.gemini_embedding_model or "models/text-embedding-004").strip()
+        fallbacks = ["models/text-embedding-004", "models/embedding-001"]
+        models_to_try = [primary] + [m for m in fallbacks if m != primary]
+
+        for model_name in models_to_try:
             try:
-                # Fallback to older model
                 result = genai.embed_content(
-                    model="models/embedding-001",
+                    model=model_name,
                     content=text,
-                    task_type="retrieval_document"
+                    task_type=task_type,
                 )
-                # embedding-001 is 768D as well
-                return result['embedding']
-            except Exception as e2:
-                logger.error(f"Critical error generating embedding: {e2}")
-                return []
+                return result["embedding"]
+            except Exception as e:
+                logger.warning("embedding.failed model=%s err=%s", model_name, e)
+        logger.error("embedding.failed_all_models")
+        return []
 
     @staticmethod
     def generate_learning_path(skill_name: str, current_prof: float, target_prof: float) -> Optional[LearningPath]:
@@ -788,6 +800,77 @@ Base guidance on widely discussed 2024-2026 workforce trends; do not invent spec
             return [sig.model_dump() for sig in env.signals[:lim]]
         except Exception as e:
             logger.exception("market_signals.failed sector=%s err=%s", sector, e)
+            return []
+
+    @staticmethod
+    def suggest_trending_domains(
+        sector: str,
+        sub_sector: str | None,
+        org_domain: str | None,
+        existing_domains: List[str],
+        preset_domains: List[str],
+        limit: int = 6,
+    ) -> List[Dict[str, Any]]:
+        """
+        Suggest emerging skill taxonomy domains scoped to the organization's industry only.
+        """
+        if not GeminiService._gemini_configured():
+            return []
+
+        model = genai.GenerativeModel(get_model_name())
+        lim = min(max(limit, 3), 10)
+        existing = ", ".join(existing_domains[:40]) if existing_domains else "(none yet)"
+        presets = ", ".join(preset_domains[:20]) if preset_domains else "(sector defaults)"
+        org_focus = org_domain.strip() if org_domain and org_domain.strip() else "not specified"
+        sub = sub_sector.strip() if sub_sector and sub_sector.strip() else "not specified"
+
+        prompt = f"""
+You advise HR on workforce skill taxonomy for ONE organization only.
+
+Organization context (stay strictly within this scope):
+- Sector: {sector}
+- Sub-sector: {sub}
+- Business / operating domain: {org_focus}
+- Domains already in taxonomy: {existing}
+- Standard domains for this sector (prefer aligning with these): {presets}
+
+Return JSON with key "domains": exactly {lim} objects. Each object:
+- domain_name: a concise skill domain label (max 80 chars) suitable for a skills taxonomy
+- trend: one of "rising", "emerging", "stable"
+- relevance_score: integer 1-5 (5 = highly relevant to this organization right now)
+- rationale: one sentence explaining why this domain matters for THIS sector/org focus
+- example_skills: array of 2-4 example skills under this domain
+
+Rules:
+- ONLY suggest domains that fit the organization's sector and business domain above.
+- Do NOT suggest domains from unrelated industries (e.g. no retail domains for a hospital).
+- Prefer NEW or underrepresented domains not already listed in "Domains already in taxonomy".
+- If suggesting an existing domain, mark trend as "rising" only when there is a clear new emphasis.
+- Keep names practical for HR workforce planning, not academic jargon.
+"""
+        try:
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=TrendingDomainsEnvelope,
+                ),
+            )
+            env = TrendingDomainsEnvelope.model_validate_json(response.text)
+            out: List[Dict[str, Any]] = []
+            for item in env.domains[:lim]:
+                out.append(
+                    {
+                        "domain_name": item.domain_name.strip()[:80],
+                        "trend": (item.trend or "emerging").strip().lower(),
+                        "relevance_score": max(1, min(5, int(item.relevance_score))),
+                        "rationale": item.rationale.strip(),
+                        "example_skills": [s.strip() for s in (item.example_skills or [])[:4] if str(s).strip()],
+                    }
+                )
+            return out
+        except Exception as e:
+            logger.exception("trending_domains.failed sector=%s err=%s", sector, e)
             return []
 
     @staticmethod

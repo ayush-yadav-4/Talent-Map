@@ -17,7 +17,8 @@ import {
   Loader2,
   TrendingUp,
   UserCheck,
-  AlertCircle
+  AlertCircle,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui";
 import { orgApi, readStoredUser } from "@/lib/api";
@@ -352,7 +353,7 @@ export default function HrProjectViewPage() {
                           <Button 
                             size="sm" 
                             className="bg-brand-600 hover:bg-brand-700 text-white h-9 px-4 gap-2"
-                            onClick={() => assignMutation.mutate({ employee_id: rec.employee_id, position: "AI-Recommended Member" })}
+                            onClick={() => assignMutation.mutate({ employeeId: rec.employee_id, position: "AI-Recommended Member" })}
                             disabled={assignMutation.isPending}
                           >
                             <UserPlus className="h-3.5 w-3.5" /> Assign

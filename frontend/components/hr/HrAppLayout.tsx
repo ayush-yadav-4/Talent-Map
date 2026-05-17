@@ -3,10 +3,12 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Brain, Building2, LayoutDashboard, LineChart, LogOut, Settings, Target, Users } from "lucide-react";
+import { Building2, LayoutDashboard, LineChart, LogOut, Settings, Target, Users } from "lucide-react";
+import { AuthLoading } from "@/components/auth/AuthLoading";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
-import { clearAuth, orgApi, readStoredUser, type AuthUser, type OrgStructureNode } from "@/lib/api";
+import { HR_ROLES } from "@/lib/auth";
+import { useRequireAuth } from "@/hooks/useRequireAuth";
+import { clearAuth, orgApi, type OrgStructureNode } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -17,7 +19,6 @@ const nav = [
   { href: "/hr/skill-intelligence", label: "Skill Intelligence", icon: LineChart },
   { href: "/hr/skill-gaps", label: "Skill Gaps", icon: Target },
   { href: "/hr/hire-vs-upskill", label: "Hire vs Upskill", icon: Target },
-  { href: "/hr/psychometrics", label: "Psychometrics", icon: Brain },
   { href: "/hr/readiness", label: "Readiness & Mobility", icon: Target },
   { href: "/hr/settings", label: "Settings", icon: Settings },
 ];
@@ -25,23 +26,20 @@ const nav = [
 export function HrAppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const onboarding = pathname?.startsWith("/hr/onboarding");
-  const [mounted, setMounted] = useState(false);
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [hasAccessToken, setHasAccessToken] = useState(false);
-  const orgId = user?.org_id;
-  const canQueryOrg = mounted && !onboarding && Boolean(orgId) && hasAccessToken;
 
-  useEffect(() => {
-    setMounted(true);
-    setUser(readStoredUser());
-    setHasAccessToken(Boolean(sessionStorage.getItem("tm_access_token")));
-  }, []);
+  const { user, ready } = useRequireAuth(
+    onboarding
+      ? { allowedRoles: [...HR_ROLES], portal: "hr", loginPath: "/login" }
+      : { allowedRoles: [...HR_ROLES], portal: "hr", loginPath: "/login" },
+  );
+
+  const orgId = user?.org_id;
+  const canQueryOrg = ready && !onboarding && Boolean(orgId);
 
   const { data: orgData } = useQuery({
     queryKey: ["hr-org", orgId],
     queryFn: async () => {
-      if (!orgId) return null;
-      const { data } = await orgApi.get(orgId);
+      const { data } = await orgApi.get(orgId!);
       return data as { name?: string };
     },
     enabled: canQueryOrg,
@@ -50,19 +48,18 @@ export function HrAppLayout({ children }: { children: React.ReactNode }) {
   const { data: structureData } = useQuery({
     queryKey: ["hr-org-structure", orgId],
     queryFn: async () => {
-      if (!orgId) return { departments: [] as OrgStructureNode[] };
-      const { data } = await orgApi.getStructure(orgId);
+      const { data } = await orgApi.getStructure(orgId!);
       return data;
     },
     enabled: canQueryOrg,
   });
 
-  if (onboarding) {
-    return <div className="min-h-screen bg-white dark:bg-tw-bg">{children}</div>;
+  if (!ready) {
+    return <AuthLoading />;
   }
 
-  if (!mounted) {
-    return <div className="min-h-screen bg-slate-50 dark:bg-tw-bg" />;
+  if (onboarding) {
+    return <div className="min-h-screen bg-white dark:bg-tw-bg">{children}</div>;
   }
 
   return (
@@ -102,7 +99,7 @@ export function HrAppLayout({ children }: { children: React.ReactNode }) {
             Organization structure
           </p>
           <div className="space-y-2">
-            {(structureData?.departments ?? []).map((node) => (
+            {(structureData?.departments ?? []).map((node: OrgStructureNode) => (
               <div key={node.department.id} className="rounded-lg bg-white/5 p-2">
                 <p className="text-xs font-semibold text-white">{node.department.name}</p>
                 <p className="mt-1 text-[11px] text-indigo-200">Roles: {node.roles.map((role) => role.title).join(", ") || "None"}</p>

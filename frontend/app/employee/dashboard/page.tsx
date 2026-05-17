@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, employeeApi, orgApi, reportApi } from "@/lib/api";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
-import { cardSurfaceClass, buttonClass } from "@/lib/ui";
+import { cardSurfaceClass } from "@/lib/ui";
 import { LearningJourney } from "@/components/employee/LearningJourney";
 import { CareerTrajectory } from "@/components/employee/CareerTrajectory";
 import { cn, toRenderableText } from "@/lib/utils";

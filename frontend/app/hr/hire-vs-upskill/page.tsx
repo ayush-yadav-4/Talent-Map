@@ -377,7 +377,7 @@ export default function HireVsUpskillPage() {
                   <div className="z-10 w-full mt-2">
                     <ReactMarkdown
                       components={{
-                        ul: ({node, ...props}) => <div className="space-y-3" {...props} />,
+                        ul: ({node, ...props}) => <ul className="space-y-3 list-none p-0 m-0" {...props} />,
                         li: ({node, ...props}) => (
                           <div className="bg-black/20 p-4 rounded-xl border border-white/10 shadow-sm print:bg-white print:border-slate-300 print:text-slate-900 flex items-start gap-3">
                             <div className="h-2 w-2 rounded-full bg-white/50 print:bg-slate-400 mt-2 shrink-0"></div>

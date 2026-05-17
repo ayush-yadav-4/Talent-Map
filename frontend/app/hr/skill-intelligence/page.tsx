@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { GapSummaryTable } from "@/components/hr/GapSummaryTable";
-import { MarketIntelPanel } from "@/components/hr/MarketIntelPanel";
+import { TrendingDomainsPanel } from "@/components/hr/TrendingDomainsPanel";
 import { SkillTaxonomyManager } from "@/components/hr/SkillTaxonomyManager";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { orgApi, readStoredUser } from "@/lib/api";
@@ -19,7 +19,7 @@ export default function SkillIntelligencePage() {
     queryKey: ["org-sector", orgId],
     queryFn: async () => {
       const { data } = await orgApi.get(orgId);
-      return data as { sector?: string; name?: string };
+      return data as { sector?: string; name?: string; sub_sector?: string; domain?: string };
     },
     enabled: ready && Boolean(orgId),
   });
@@ -32,7 +32,7 @@ export default function SkillIntelligencePage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-tw-text">Skill intelligence</h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-tw-muted">
-            Taxonomy, market signals, and org-wide gap summary for{" "}
+            Taxonomy, trending domains, and org-wide gap summary for{" "}
             <span className="font-medium">{org?.name ?? "your organization"}</span>.
           </p>
         </div>
@@ -50,7 +50,11 @@ export default function SkillIntelligencePage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <SkillTaxonomyManager />
-        <MarketIntelPanel sector={org?.sector} roleHint="Workforce planning" limit={8} />
+        <TrendingDomainsPanel
+          sector={org?.sector}
+          subSector={org?.sub_sector}
+          orgDomain={org?.domain}
+        />
       </div>
 
       <GapSummaryTable title="Organization gap matrix" />
