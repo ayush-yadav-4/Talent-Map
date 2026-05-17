@@ -331,6 +331,11 @@ export const agentApi = {
     api.get("/api/v1/agent/market-signals", { params }),
 };
 
+export const roadmapApi = {
+  roleSuggestions: () => api.post("/api/v1/roadmap/role-suggestions"),
+  generate: (body: { target_role: string }) => api.post("/api/v1/roadmap/generate", body),
+};
+
 export const developmentApi = {
   generateIdp: (targetRole?: string) => api.post("/api/v1/development/generate", { target_role: targetRole }),
   listPlans: () => api.get("/api/v1/development/plans"),

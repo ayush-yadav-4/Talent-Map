@@ -39,6 +39,7 @@ from app.routers import (
     role_intelligence,
     skills,
     development,
+    roadmap,
 )
 
 if settings.sentry_dsn:
@@ -136,6 +137,7 @@ app.include_router(market_signals.router, prefix="/api/v1/agent", tags=["Market 
 app.include_router(job_descriptions.router, prefix="/api/v1/job-descriptions", tags=["Job Descriptions"])
 app.include_router(psychometrics.router, prefix="/api/v1/psychometrics", tags=["Psychometrics"])
 app.include_router(development.router, prefix="/api/v1/development", tags=["Development Plans"])
+app.include_router(roadmap.router, prefix="/api/v1/roadmap", tags=["Skill Roadmap"])
 uploads_dir = Path("uploads")
 uploads_dir.joinpath("resumes").mkdir(parents=True, exist_ok=True)
 app.mount("/static/uploads", StaticFiles(directory=str(uploads_dir)), name="static")

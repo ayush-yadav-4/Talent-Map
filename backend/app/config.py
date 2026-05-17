@@ -46,7 +46,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY"),
     )
     gemini_model: str = "gemini-1.5-flash-latest"
-    gemini_embedding_model: str = "models/text-embedding-004"
+    gemini_embedding_model: str = "models/gemini-embedding-001"
     mongodb_url: Optional[str] = None
 
     pinecone_api_key: Optional[str] = None

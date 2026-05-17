@@ -162,6 +162,44 @@ class TrendingDomainsEnvelope(BaseModel):
     domains: List[TrendingDomainItem] = Field(default_factory=list)
 
 
+class RoleSuggestionItem(BaseModel):
+    role_title: str
+    fit_score: float
+    readiness_level: str
+    rationale: str
+    key_strengths: List[str] = Field(default_factory=list)
+    skills_to_develop: List[str] = Field(default_factory=list)
+    typical_timeline_months: int = 4
+    domain: str = ""
+
+
+class RoleSuggestionsEnvelope(BaseModel):
+    suggestions: List[RoleSuggestionItem] = Field(default_factory=list)
+    summary: str = ""
+
+
+class RoadmapPhase(BaseModel):
+    phase_number: int
+    title: str
+    duration_weeks: int
+    objectives: List[str] = Field(default_factory=list)
+    skills: List[str] = Field(default_factory=list)
+    activities: List[str] = Field(default_factory=list)
+    success_criteria: str = ""
+
+
+class SkillRoadmapEnvelope(BaseModel):
+    target_role: str
+    estimated_months: int
+    overview: str
+    current_strengths: List[str] = Field(default_factory=list)
+    priority_gaps: List[str] = Field(default_factory=list)
+    phases: List[RoadmapPhase] = Field(default_factory=list)
+    quick_wins: List[str] = Field(default_factory=list)
+    recommended_certifications: List[str] = Field(default_factory=list)
+    summary: str = ""
+
+
 class TeamMemberSuggestion(BaseModel):
     employee_id: str
     employee_name: str
@@ -532,8 +570,8 @@ class GeminiService:
         if not GeminiService._gemini_configured():
             return []
 
-        primary = (settings.gemini_embedding_model or "models/text-embedding-004").strip()
-        fallbacks = ["models/text-embedding-004", "models/embedding-001"]
+        primary = (settings.gemini_embedding_model or "models/gemini-embedding-001").strip()
+        fallbacks = ["models/gemini-embedding-001", "models/gemini-embedding-2"]
         models_to_try = [primary] + [m for m in fallbacks if m != primary]
 
         for model_name in models_to_try:
@@ -1147,5 +1185,124 @@ Use only the provided numbers; do not invent extra dimensions.
             return HireVsUpskillResult.model_validate_json(response.text)
         except Exception as e:
             logger.error(f"Error analyzing hire vs upskill: {e}")
+            return None
+
+    @staticmethod
+    def suggest_career_roles(
+        employee_data: Dict[str, Any],
+        org_context: Dict[str, Any],
+        current_skills: List[Dict[str, Any]],
+        open_gaps: List[Dict[str, Any]],
+        org_role_matches: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Suggest target roles based on skills, experience, and org domain."""
+        if not GeminiService._gemini_configured():
+            return None
+
+        model = genai.GenerativeModel(get_model_name())
+        top_skills = current_skills[:25]
+        prompt = f"""
+You are a career advisor for workforce upskilling. Suggest realistic next roles for ONE employee.
+
+ORGANIZATION:
+- Sector: {org_context.get("sector")}
+- Sub-sector: {org_context.get("sub_sector")}
+- Business domain: {org_context.get("domain") or "general"}
+
+EMPLOYEE:
+- Name: {employee_data.get("full_name")}
+- Current title: {employee_data.get("job_title")}
+- Seniority: {employee_data.get("seniority_level")}
+- Years of experience: {employee_data.get("years_of_experience")}
+- Education: {employee_data.get("highest_qualification")} in {employee_data.get("field_of_study")}
+
+CURRENT SKILLS (name, domain, proficiency 1-5):
+{json.dumps(top_skills)}
+
+OPEN SKILL GAPS:
+{json.dumps(open_gaps[:12])}
+
+INTERNAL ROLE MATCH SCORES (if any, 0-100):
+{json.dumps(org_role_matches[:8])}
+
+INSTRUCTIONS:
+1. Return JSON matching RoleSuggestionsEnvelope with exactly 5 suggestions.
+2. Roles must fit the organization's sector and domain; include lateral and growth paths.
+3. readiness_level: one of "strong_match", "achievable", "stretch".
+4. fit_score: 0-100 realistic alignment with current skills.
+5. Prefer roles aligned with internal matches when scores are high; also suggest aspirational roles.
+6. skills_to_develop: 3-5 concrete skills per role.
+7. summary: 2-3 sentences on overall career direction.
+"""
+        try:
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=RoleSuggestionsEnvelope,
+                ),
+            )
+            env = RoleSuggestionsEnvelope.model_validate_json(response.text)
+            return env.model_dump()
+        except Exception as e:
+            logger.exception("roadmap.role_suggestions.failed err=%s", e)
+            return None
+
+    @staticmethod
+    def generate_skill_roadmap(
+        employee_data: Dict[str, Any],
+        org_context: Dict[str, Any],
+        current_skills: List[Dict[str, Any]],
+        open_gaps: List[Dict[str, Any]],
+        target_role: str,
+        target_role_skills: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Generate a phased upskilling roadmap toward a target role."""
+        if not GeminiService._gemini_configured():
+            return None
+
+        model = genai.GenerativeModel(get_model_name())
+        prompt = f"""
+You are an L&D strategist. Build a detailed upskilling roadmap for ONE employee.
+
+ORGANIZATION: sector={org_context.get("sector")}, domain={org_context.get("domain")}
+
+EMPLOYEE:
+- Current title: {employee_data.get("job_title")}
+- Seniority: {employee_data.get("seniority_level")}
+- Experience (years): {employee_data.get("years_of_experience")}
+
+TARGET ROLE: {target_role}
+
+TARGET ROLE REQUIRED SKILLS (if known):
+{json.dumps(target_role_skills[:30])}
+
+CURRENT SKILLS:
+{json.dumps(current_skills[:30])}
+
+OPEN GAPS:
+{json.dumps(open_gaps[:15])}
+
+INSTRUCTIONS:
+1. Return JSON matching SkillRoadmapEnvelope.
+2. estimated_months: realistic 3-18 months based on gap size.
+3. phases: 4-6 sequential phases with phase_number, title, duration_weeks, objectives, skills, activities, success_criteria.
+4. priority_gaps: top 5-8 skills to close first.
+5. quick_wins: 3-5 actions achievable in 2-4 weeks.
+6. recommended_certifications: relevant certs or credentials (empty list if none).
+7. Be specific and actionable; reference actual skill names from the data when possible.
+"""
+        try:
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=SkillRoadmapEnvelope,
+                ),
+            )
+            env = SkillRoadmapEnvelope.model_validate_json(response.text)
+            return env.model_dump()
+        except Exception as e:
+            logger.exception("roadmap.generate.failed target=%s err=%s", target_role, e)
             return None
 

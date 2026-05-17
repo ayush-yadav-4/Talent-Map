@@ -7,6 +7,47 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+_EMBEDDING_FALLBACKS = (
+    "models/gemini-embedding-001",
+    "models/gemini-embedding-2",
+    "gemini-embedding-001",
+)
+
+
+def _embedding_model_candidates() -> list[str]:
+    primary = (settings.gemini_embedding_model or "models/gemini-embedding-001").strip()
+    candidates = [primary, *_EMBEDDING_FALLBACKS]
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for name in candidates:
+        if name and name not in seen:
+            seen.add(name)
+            ordered.append(name)
+    return ordered
+
+
+def _create_embeddings(api_key: str):
+    from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
+    last_error: Exception | None = None
+    for model_name in _embedding_model_candidates():
+        try:
+            embeddings = GoogleGenerativeAIEmbeddings(
+                model=model_name,
+                google_api_key=api_key,
+            )
+            # Probe once so bad model names fail at init, not on first chat.
+            embeddings.embed_query("healthcheck")
+            logger.info("rag.embeddings.ready model=%s", model_name)
+            return embeddings
+        except Exception as exc:
+            last_error = exc
+            logger.warning("rag.embeddings.skip model=%s err=%s", model_name, exc)
+    if last_error:
+        raise last_error
+    raise RuntimeError("No embedding model configured")
+
+
 class RAGService:
     def __init__(self):
         self.is_ready = False
@@ -36,10 +77,7 @@ class RAGService:
             return
 
         try:
-            self.embeddings = GoogleGenerativeAIEmbeddings(
-                model="models/embedding-001",
-                google_api_key=gemini_api_key,
-            )
+            self.embeddings = _create_embeddings(gemini_api_key)
 
             # Use namespaces in one index to isolate employee and HR corpora.
             pinecone_kwargs = {"pinecone_api_key": settings.pinecone_api_key}
@@ -82,12 +120,16 @@ class RAGService:
         if not self.is_ready or self.employee_vector_store is None:
             return ""
 
-        docs = await self.employee_vector_store.asimilarity_search(
-            query=query, 
-            k=k,
-            filter={"employee_id": employee_id}
-        )
-        return "\n\n".join([doc.page_content for doc in docs])
+        try:
+            docs = await self.employee_vector_store.asimilarity_search(
+                query=query,
+                k=k,
+                filter={"employee_id": employee_id},
+            )
+            return "\n\n".join([doc.page_content for doc in docs])
+        except Exception as exc:
+            logger.warning("rag.retrieve_employee.failed employee_id=%s err=%s", employee_id, exc)
+            return ""
         
     async def ingest_hr_data(self, org_id: str, content: str, metadata: Dict[str, Any] = None):
         """
@@ -110,11 +152,15 @@ class RAGService:
         if not self.is_ready or self.hr_vector_store is None:
             return ""
 
-        docs = await self.hr_vector_store.asimilarity_search(
-            query=query, 
-            k=k,
-            filter={"org_id": org_id}
-        )
-        return "\n\n".join([doc.page_content for doc in docs])
+        try:
+            docs = await self.hr_vector_store.asimilarity_search(
+                query=query,
+                k=k,
+                filter={"org_id": org_id},
+            )
+            return "\n\n".join([doc.page_content for doc in docs])
+        except Exception as exc:
+            logger.warning("rag.retrieve_hr.failed org_id=%s err=%s", org_id, exc)
+            return ""
 
 rag_service = RAGService()
