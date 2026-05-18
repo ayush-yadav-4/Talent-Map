@@ -1,4 +1,4 @@
-export type Sector = "corporate" | "government" | "hospital" | "manufacturing" | "retail";
+export type Sector = "corporate" | "government" | "hospital" | "manufacturing" | "retail" | "insurance";
 
 export const SECTORS: { value: Sector; label: string }[] = [
   { value: "corporate", label: "Corporate / IT" },
@@ -6,6 +6,7 @@ export const SECTORS: { value: Sector; label: string }[] = [
   { value: "hospital", label: "Hospital / Healthcare" },
   { value: "manufacturing", label: "Manufacturing / Industrial" },
   { value: "retail", label: "Retail / Service" },
+  { value: "insurance", label: "Insurance" },
 ];
 
 export const EMPLOYEE_COUNT_RANGES = ["1-50", "51-200", "201-500", "501-2000", "2000+"] as const;

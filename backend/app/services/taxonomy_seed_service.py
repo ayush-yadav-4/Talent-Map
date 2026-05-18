@@ -33,6 +33,14 @@ SECTOR_SKILL_DOMAINS: dict[str, list[str]] = {
         "Inventory",
         "Operations",
     ],
+    "insurance": [
+        "Underwriting",
+        "Claims",
+        "Actuarial",
+        "Risk & Compliance",
+        "Policy Operations",
+        "Distribution",
+    ],
     "corporate": [
         "Engineering",
         "Product",

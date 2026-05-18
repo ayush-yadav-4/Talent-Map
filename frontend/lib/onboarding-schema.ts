@@ -6,6 +6,7 @@ export const SECTOR_VALUES = [
   { value: "hospital", label: "Hospital / healthcare", description: "Hospitals, clinics, and diagnostics." },
   { value: "manufacturing", label: "Manufacturing / industrial", description: "Plants, quality, and supply chain." },
   { value: "retail", label: "Retail / services", description: "Stores, hospitality, and frontline ops." },
+  { value: "insurance", label: "Insurance", description: "Life, health, and general insurance operations." },
 ] as const;
 
 export const EMPLOYEE_COUNT_RANGE_VALUES = ["1-50", "51-200", "201-500", "501-2000", "2000+"] as const;
@@ -20,7 +21,7 @@ export const PRIMARY_USE_CASE_OPTIONS = [
 export const onboardingSchema = z
   .object({
     organization_name: z.string().min(2, "Organization name is required").max(255),
-    sector: z.enum(["corporate", "government", "hospital", "manufacturing", "retail"], {
+    sector: z.enum(["corporate", "government", "hospital", "manufacturing", "retail", "insurance"], {
       required_error: "Select a sector",
     }),
     sub_sector: z.string().max(100).optional().or(z.literal("")),

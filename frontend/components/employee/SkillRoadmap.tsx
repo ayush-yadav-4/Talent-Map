@@ -130,8 +130,8 @@ export function SkillRoadmap() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-dashed border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900/40 dark:bg-brand-950/20">
-        <p className="text-xs font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">
+      <div className="rounded-xl border border-dashed border-brand-200 bg-brand-50/50 p-4 dark:border-tw-blue/30 dark:bg-tw-raised dark:text-tw-text">
+        <p className="text-xs font-semibold uppercase tracking-wide text-brand-700 dark:text-tw-blue">
           Step 1 · Explore target roles
         </p>
         <p className="mt-1 text-sm text-slate-600 dark:text-tw-muted">

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { orgApi, readStoredUser, type DepartmentPayload, type RolePayload } from "@/lib/api";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
+import { DEPARTMENT_PRESETS, ROLE_PRESETS, suggestDeptCode } from "@/lib/sector-presets";
 import { cardSurfaceClass, formInputClass, formLabelClass } from "@/lib/ui";
 
 type EditDepartmentState = Record<string, DepartmentPayload>;
@@ -183,6 +184,24 @@ export default function HrOrganizationPage() {
     })),
   );
   const totalEmployees = allDepartmentNodes.reduce((sum, node) => sum + node.employees.length, 0);
+  const normalizedSector = (organizationData?.sector ?? "corporate").toLowerCase();
+  const departmentSuggestions = useMemo(
+    () => DEPARTMENT_PRESETS[normalizedSector] ?? DEPARTMENT_PRESETS.corporate,
+    [normalizedSector],
+  );
+  const roleSuggestions = useMemo(() => ROLE_PRESETS[normalizedSector] ?? ROLE_PRESETS.corporate, [normalizedSector]);
+
+  const applyDepartmentSuggestion = (departmentName: string) => {
+    setNewDepartment((previous) => ({
+      ...previous,
+      name: departmentName,
+      code: previous.code?.trim() ? previous.code : suggestDeptCode(departmentName),
+    }));
+  };
+
+  const applyRoleSuggestion = (roleTitle: string) => {
+    setNewRole((previous) => ({ ...previous, title: roleTitle }));
+  };
 
   return (
     <div className="space-y-6">
@@ -235,6 +254,18 @@ export default function HrOrganizationPage() {
       <section className={cardSurfaceClass + " p-4"}>
         <h2 className="text-lg font-semibold text-slate-900 dark:text-tw-text">Add department</h2>
         <p className="mb-4 text-sm text-slate-600 dark:text-tw-muted">Create new departments for your organization structure.</p>
+        <div className="mb-4 flex flex-wrap gap-2">
+          {departmentSuggestions.map((departmentName) => (
+            <button
+              key={departmentName}
+              type="button"
+              onClick={() => applyDepartmentSuggestion(departmentName)}
+              className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 hover:border-brand-300 dark:border-tw-border dark:bg-tw-raised dark:text-tw-text dark:hover:border-tw-blue"
+            >
+              Suggest {departmentName}
+            </button>
+          ))}
+        </div>
         <div className="grid gap-2 md:grid-cols-4">
           <input
             className={formInputClass + " md:col-span-2"}
@@ -263,6 +294,18 @@ export default function HrOrganizationPage() {
       <section className={cardSurfaceClass + " p-4"}>
         <h2 className="text-lg font-semibold text-slate-900 dark:text-tw-text">Add role</h2>
         <p className="mb-4 text-sm text-slate-600 dark:text-tw-muted">Add role titles and map them to departments.</p>
+        <div className="mb-4 flex flex-wrap gap-2">
+          {roleSuggestions.map((roleTitle) => (
+            <button
+              key={roleTitle}
+              type="button"
+              onClick={() => applyRoleSuggestion(roleTitle)}
+              className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-medium text-violet-900 hover:border-violet-400 dark:border-tw-border dark:bg-tw-raised dark:text-tw-text dark:hover:border-tw-blue"
+            >
+              Suggest {roleTitle}
+            </button>
+          ))}
+        </div>
         <div className="grid gap-2 md:grid-cols-4">
           <input
             className={formInputClass}

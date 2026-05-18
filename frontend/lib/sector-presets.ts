@@ -35,6 +35,13 @@ export const SUB_SECTORS: Record<string, { value: string; label: string }[]> = {
     { value: "ecommerce", label: "E-commerce" },
     { value: "banking_fs", label: "Banking / Financial Services" },
   ],
+  insurance: [
+    { value: "life_insurance", label: "Life Insurance" },
+    { value: "general_insurance", label: "General Insurance" },
+    { value: "health_insurance", label: "Health Insurance" },
+    { value: "brokerage_tpa", label: "Brokerage / TPA" },
+    { value: "reinsurance", label: "Reinsurance" },
+  ],
 };
 
 export const INDIAN_STATES = [
@@ -135,6 +142,18 @@ export const DEPARTMENT_PRESETS: Record<string, string[]> = {
     "Marketing",
     "Loss Prevention",
   ],
+  insurance: [
+    "Underwriting",
+    "Claims Management",
+    "Actuarial",
+    "Risk & Compliance",
+    "Policy Administration",
+    "Distribution & Agency",
+    "Reinsurance",
+    "Customer Service",
+    "Finance & Accounts",
+    "IT & Data",
+  ],
 };
 
 export const ROLE_PRESETS: Record<string, string[]> = {
@@ -202,6 +221,21 @@ export const ROLE_PRESETS: Record<string, string[]> = {
     "Cash Counter Executive",
     "Visual Merchandiser",
     "Loss Prevention Officer",
+  ],
+  insurance: [
+    "Insurance Underwriter",
+    "Senior Underwriter",
+    "Claims Adjuster",
+    "Claims Processor",
+    "Actuarial Analyst",
+    "Pricing Actuary",
+    "Risk Manager",
+    "Compliance Officer (Insurance)",
+    "Policy Administration Executive",
+    "Relationship Manager (Bancassurance)",
+    "Insurance Sales Advisor",
+    "Reinsurance Analyst",
+    "Fraud Investigator",
   ],
 };
 

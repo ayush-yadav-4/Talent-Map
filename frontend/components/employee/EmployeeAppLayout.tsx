@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { BriefcaseBusiness, BookOpenCheck, Home, LineChart, LogOut, MessageCircle, Trophy, UserCircle } from "lucide-react";
+import { BriefcaseBusiness, BookOpenCheck, Home, LineChart, LogOut, Map, MessageCircle, Trophy, UserCircle } from "lucide-react";
 import { AuthLoading } from "@/components/auth/AuthLoading";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { EMPLOYEE_PORTAL_ROLES } from "@/lib/auth";
@@ -20,6 +20,7 @@ const links = [
   { href: "/employee/assessments", label: "My Assessments", icon: BookOpenCheck },
   { href: "/employee/persona", label: "View My Persona", icon: UserCircle },
   { href: "/employee/scores", label: "Scores", icon: Trophy },
+  { href: "/employee/skill-roadmap", label: "Skill Roadmap", icon: Map },
   { href: "/employee/course-suggestions", label: "Course Suggestions", icon: BookOpenCheck },
 ];
 

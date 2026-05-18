@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import urllib.parse
 import warnings
 from typing import List, Dict, Any, Optional
@@ -346,6 +347,288 @@ class GeminiService:
             "key_deliverables": GeminiService._normalize_text(raw.get("key_deliverables") or raw.get("deliverables") or ""),
             "stakeholders": GeminiService._normalize_text(raw.get("stakeholders") or ""),
             "success_metrics": GeminiService._normalize_text(raw.get("success_metrics") or raw.get("kpis") or ""),
+        }
+
+    @staticmethod
+    def _as_str_list(value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str) and value.strip():
+            return [value.strip()]
+        return []
+
+    @staticmethod
+    def _coerce_role_suggestions_payload(raw: Any) -> dict[str, Any]:
+        """Normalize LLM output variants into RoleSuggestionsEnvelope-compatible payload."""
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except Exception:
+                raw = {}
+        if not isinstance(raw, dict):
+            raw = {}
+
+        raw_items = raw.get("suggestions") or raw.get("roles") or raw.get("role_suggestions") or []
+        if not isinstance(raw_items, list):
+            raw_items = []
+
+        normalized: list[dict[str, Any]] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            role_title = (
+                item.get("role_title")
+                or item.get("role_name")
+                or item.get("role")
+                or item.get("title")
+                or item.get("job_title")
+                or ""
+            )
+            role_title = str(role_title).strip()
+            if not role_title:
+                continue
+
+            rationale = (
+                item.get("rationale")
+                or item.get("reason")
+                or item.get("reasoning")
+                or item.get("description")
+                or item.get("why")
+                or item.get("justification")
+                or ""
+            )
+            if not str(rationale).strip():
+                rationale = f"Suggested growth path toward {role_title} based on your current skills."
+
+            fit_raw = item.get("fit_score") or item.get("match_score") or item.get("score") or item.get("fit") or 50
+            try:
+                fit_score = float(fit_raw)
+                if 0 < fit_score <= 1:
+                    fit_score *= 100
+                fit_score = max(0.0, min(100.0, fit_score))
+            except Exception:
+                fit_score = 50.0
+
+            readiness = str(item.get("readiness_level") or item.get("readiness") or "achievable").strip().lower()
+            readiness = readiness.replace(" ", "_").replace("-", "_")
+            if readiness not in ("strong_match", "achievable", "stretch"):
+                if "strong" in readiness or "high" in readiness:
+                    readiness = "strong_match"
+                elif "stretch" in readiness or "aspir" in readiness:
+                    readiness = "stretch"
+                else:
+                    readiness = "achievable"
+
+            timeline_raw = (
+                item.get("typical_timeline_months")
+                or item.get("timeline_months")
+                or item.get("months")
+                or 4
+            )
+            try:
+                typical_timeline_months = max(1, int(timeline_raw))
+            except Exception:
+                typical_timeline_months = 4
+
+            normalized.append(
+                {
+                    "role_title": role_title,
+                    "fit_score": fit_score,
+                    "readiness_level": readiness,
+                    "rationale": str(rationale).strip(),
+                    "key_strengths": GeminiService._as_str_list(item.get("key_strengths") or item.get("strengths")),
+                    "skills_to_develop": GeminiService._as_str_list(
+                        item.get("skills_to_develop")
+                        or item.get("skills_to_learn")
+                        or item.get("focus_skills")
+                        or item.get("skills")
+                    ),
+                    "typical_timeline_months": typical_timeline_months,
+                    "domain": str(item.get("domain") or item.get("sector_domain") or "").strip(),
+                }
+            )
+
+        summary = raw.get("summary") or raw.get("overview") or raw.get("career_summary") or ""
+        return {"suggestions": normalized, "summary": str(summary).strip()}
+
+    @staticmethod
+    def _strip_json_fence(text: str) -> str:
+        text = (text or "").strip()
+        if not text.startswith("```"):
+            return text
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+
+    @staticmethod
+    def _repair_json_text(text: str) -> str:
+        """Best-effort fixes for common LLM JSON syntax mistakes."""
+        cleaned = text.strip()
+        cleaned = re.sub(r",\s*]", "]", cleaned)
+        cleaned = re.sub(r",\s*}", "}", cleaned)
+        return cleaned
+
+    @staticmethod
+    def _extract_json_object(text: str) -> str:
+        text = GeminiService._strip_json_fence(text)
+        start = text.find("{")
+        if start < 0:
+            return text
+        depth = 0
+        in_string = False
+        escape = False
+        for index, char in enumerate(text[start:], start):
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : index + 1]
+        return text[start:]
+
+    @staticmethod
+    def _parse_llm_json(text: Any) -> dict[str, Any]:
+        if isinstance(text, dict):
+            return text
+        if not isinstance(text, str) or not text.strip():
+            return {}
+
+        candidates: list[str] = []
+        seen: set[str] = set()
+        for candidate in (
+            text,
+            GeminiService._strip_json_fence(text),
+            GeminiService._extract_json_object(text),
+            GeminiService._repair_json_text(GeminiService._strip_json_fence(text)),
+            GeminiService._repair_json_text(GeminiService._extract_json_object(text)),
+        ):
+            candidate = candidate.strip()
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            candidates.append(candidate)
+
+        snippet = candidates[-1] if candidates else ""
+        while snippet:
+            repaired = GeminiService._repair_json_text(snippet)
+            if repaired not in seen:
+                candidates.append(repaired)
+                seen.add(repaired)
+            last_brace = snippet.rfind("}")
+            if last_brace <= 0:
+                break
+            snippet = snippet[:last_brace]
+
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+        return {}
+
+    @staticmethod
+    def _coerce_roadmap_phase(item: Any, fallback_index: int) -> dict[str, Any] | None:
+        if not isinstance(item, dict):
+            return None
+        phase_number_raw = item.get("phase_number") or item.get("phase") or item.get("number") or fallback_index
+        try:
+            phase_number = max(1, int(phase_number_raw))
+        except Exception:
+            phase_number = fallback_index
+
+        title = item.get("title") or item.get("phase_title") or item.get("name") or f"Phase {phase_number}"
+        duration_raw = item.get("duration_weeks") or item.get("weeks") or item.get("duration") or 4
+        try:
+            duration_weeks = max(1, int(duration_raw))
+        except Exception:
+            duration_weeks = 4
+
+        return {
+            "phase_number": phase_number,
+            "title": str(title).strip(),
+            "duration_weeks": duration_weeks,
+            "objectives": GeminiService._as_str_list(item.get("objectives") or item.get("goals")),
+            "skills": GeminiService._as_str_list(item.get("skills") or item.get("skill_focus")),
+            "activities": GeminiService._as_str_list(item.get("activities") or item.get("actions")),
+            "success_criteria": str(item.get("success_criteria") or item.get("success_metric") or "").strip(),
+        }
+
+    @staticmethod
+    def _coerce_skill_roadmap_payload(raw: Any, target_role: str) -> dict[str, Any]:
+        data = GeminiService._parse_llm_json(raw)
+        nested = data.get("roadmap") or data.get("skill_roadmap") or data.get("plan")
+        if isinstance(nested, dict):
+            data = {**data, **nested}
+
+        estimated_raw = data.get("estimated_months") or data.get("timeline_months") or data.get("duration_months") or 6
+        try:
+            estimated_months = max(1, min(24, int(estimated_raw)))
+        except Exception:
+            estimated_months = 6
+
+        raw_phases = data.get("phases") or data.get("roadmap_phases") or data.get("milestones") or []
+        if not isinstance(raw_phases, list):
+            raw_phases = []
+
+        phases: list[dict[str, Any]] = []
+        for index, item in enumerate(raw_phases, start=1):
+            phase = GeminiService._coerce_roadmap_phase(item, index)
+            if phase:
+                phases.append(phase)
+
+        priority_gaps = GeminiService._as_str_list(
+            data.get("priority_gaps") or data.get("gaps") or data.get("skill_gaps")
+        )
+        quick_wins = GeminiService._as_str_list(data.get("quick_wins") or data.get("quick_actions"))
+
+        if not phases:
+            phases = [
+                {
+                    "phase_number": 1,
+                    "title": "Foundation",
+                    "duration_weeks": 4,
+                    "objectives": ["Close priority skill gaps for the target role"],
+                    "skills": priority_gaps[:5],
+                    "activities": quick_wins[:3] or ["Complete one guided learning module per week"],
+                    "success_criteria": "Demonstrate progress on at least two priority skills.",
+                }
+            ]
+
+        overview = data.get("overview") or data.get("description") or data.get("summary") or ""
+        if not str(overview).strip():
+            overview = f"Structured upskilling plan to prepare for {target_role}."
+
+        summary = data.get("summary") or data.get("closing_summary") or overview
+
+        return {
+            "target_role": str(data.get("target_role") or data.get("role") or target_role).strip() or target_role,
+            "estimated_months": estimated_months,
+            "overview": str(overview).strip(),
+            "current_strengths": GeminiService._as_str_list(
+                data.get("current_strengths") or data.get("strengths")
+            ),
+            "priority_gaps": priority_gaps,
+            "phases": phases,
+            "quick_wins": quick_wins,
+            "recommended_certifications": GeminiService._as_str_list(
+                data.get("recommended_certifications") or data.get("certifications")
+            ),
+            "summary": str(summary).strip(),
         }
 
     @staticmethod
@@ -1226,23 +1509,22 @@ INTERNAL ROLE MATCH SCORES (if any, 0-100):
 {json.dumps(org_role_matches[:8])}
 
 INSTRUCTIONS:
-1. Return JSON matching RoleSuggestionsEnvelope with exactly 5 suggestions.
-2. Roles must fit the organization's sector and domain; include lateral and growth paths.
-3. readiness_level: one of "strong_match", "achievable", "stretch".
-4. fit_score: 0-100 realistic alignment with current skills.
-5. Prefer roles aligned with internal matches when scores are high; also suggest aspirational roles.
-6. skills_to_develop: 3-5 concrete skills per role.
-7. summary: 2-3 sentences on overall career direction.
+1. Return JSON with exactly 5 items in "suggestions".
+2. Use these exact keys for each suggestion (do not rename):
+   role_title, fit_score, readiness_level, rationale, key_strengths, skills_to_develop, typical_timeline_months, domain
+3. readiness_level must be one of: "strong_match", "achievable", "stretch".
+4. fit_score must be 0-100 (number).
+5. rationale must be 1-2 sentences per role.
+6. summary: 2-3 sentences on overall career direction.
 """
         try:
+            # JSON-only mode: Pydantic response_schema injects unsupported "default" keys in Gemini protos.
             response = model.generate_content(
                 prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=RoleSuggestionsEnvelope,
-                ),
+                generation_config=genai.GenerationConfig(response_mime_type="application/json"),
             )
-            env = RoleSuggestionsEnvelope.model_validate_json(response.text)
+            normalized = GeminiService._coerce_role_suggestions_payload(response.text)
+            env = RoleSuggestionsEnvelope.model_validate(normalized)
             return env.model_dump()
         except Exception as e:
             logger.exception("roadmap.role_suggestions.failed err=%s", e)
@@ -1284,24 +1566,43 @@ OPEN GAPS:
 {json.dumps(open_gaps[:15])}
 
 INSTRUCTIONS:
-1. Return JSON matching SkillRoadmapEnvelope.
-2. estimated_months: realistic 3-18 months based on gap size.
-3. phases: 4-6 sequential phases with phase_number, title, duration_weeks, objectives, skills, activities, success_criteria.
-4. priority_gaps: top 5-8 skills to close first.
-5. quick_wins: 3-5 actions achievable in 2-4 weeks.
-6. recommended_certifications: relevant certs or credentials (empty list if none).
+1. Return ONLY valid JSON (no markdown, no comments, no trailing commas).
+2. Use exactly these top-level keys:
+   target_role, estimated_months, overview, current_strengths, priority_gaps, phases, quick_wins, recommended_certifications, summary
+3. Do NOT include employee_id or other wrapper objects.
+4. phases: 4-5 items max; each phase must include phase_number, title, duration_weeks, objectives, skills, activities, success_criteria.
+5. estimated_months: integer 3-18.
+6. Keep every string concise (under 200 characters) to avoid invalid JSON.
 7. Be specific and actionable; reference actual skill names from the data when possible.
 """
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=SkillRoadmapEnvelope,
-                ),
-            )
-            env = SkillRoadmapEnvelope.model_validate_json(response.text)
-            return env.model_dump()
+            last_error: Exception | None = None
+            for attempt in range(2):
+                attempt_prompt = prompt
+                if attempt == 1:
+                    attempt_prompt += (
+                        "\n\nYour previous response was invalid JSON. "
+                        "Return a smaller, strictly valid JSON object with 4 phases only."
+                    )
+                response = model.generate_content(
+                    attempt_prompt,
+                    generation_config=genai.GenerationConfig(response_mime_type="application/json"),
+                )
+                normalized = GeminiService._coerce_skill_roadmap_payload(response.text, target_role)
+                try:
+                    env = SkillRoadmapEnvelope.model_validate(normalized)
+                    return env.model_dump()
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning(
+                        "roadmap.generate.parse_failed target=%s attempt=%s err=%s",
+                        target_role,
+                        attempt + 1,
+                        exc,
+                    )
+            if last_error:
+                raise last_error
+            return None
         except Exception as e:
             logger.exception("roadmap.generate.failed target=%s err=%s", target_role, e)
             return None

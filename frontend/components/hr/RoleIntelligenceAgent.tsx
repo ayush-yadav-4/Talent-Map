@@ -53,7 +53,12 @@ export function RoleIntelligenceAgent() {
         </div>
         <div>
           <h2 className="text-lg font-bold text-slate-900 dark:text-tw-text">Role Intelligence Agent</h2>
-          <p className="text-xs text-slate-500 dark:text-tw-muted">Paste a Job Description to extract a structured skill profile.</p>
+          <p className="text-xs text-slate-500 dark:text-tw-muted">
+            Paste a job description to extract a structured skill profile.
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-tw-muted">
+            No JD yet? Write one below with role summary, responsibilities, and required skills—then click Analyze JD.
+          </p>
         </div>
       </div>
 

@@ -7,7 +7,6 @@ import { api, employeeApi, orgApi, reportApi } from "@/lib/api";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { cardSurfaceClass } from "@/lib/ui";
 import { LearningJourney } from "@/components/employee/LearningJourney";
-import { SkillRoadmap } from "@/components/employee/SkillRoadmap";
 import { CareerTrajectory } from "@/components/employee/CareerTrajectory";
 import { cn, toRenderableText } from "@/lib/utils";
 import { Sparkles, RefreshCw, AlertCircle } from "lucide-react";
@@ -218,8 +217,6 @@ export default function EmployeeDashboardPage() {
           <p className="mt-2 text-3xl font-bold text-slate-900 dark:text-tw-text">{isLoadingStats ? "..." : dashboardStats?.certs_expiring_soon ?? 0}</p>
         </div>
       </div>
-
-      <SkillRoadmap />
 
       <LearningJourney topGaps={topGaps} />
 
