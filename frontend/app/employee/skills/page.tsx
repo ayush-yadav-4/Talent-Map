@@ -118,7 +118,9 @@ export default function EmployeeSkillsPage() {
 
   const analyzeMutation = useMutation({
     mutationFn: async () => {
-      const { data } = await api.get(`/api/v1/employee-skills/${employeeId}/analysis`);
+      const { data } = await api.get(`/api/v1/employee-skills/${employeeId}/analysis`, {
+        params: { run_ai: true },
+      });
       return data.analysis;
     },
     onSuccess: (data) => {

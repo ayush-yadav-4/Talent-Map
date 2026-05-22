@@ -51,7 +51,7 @@ export function SkillTaxonomyManager({ className }: Props) {
       toast.success(`Seeded: ${payload?.created ?? 0} created, ${payload?.updated ?? 0} updated`);
       void qc.invalidateQueries({ queryKey: ["skills-taxonomy"] });
     },
-    onError: () => toast.error("Seed failed — check Gemini key and permissions."),
+    onError: () => toast.error("Seed failed — check OpenAI key and permissions."),
   });
 
   const addMutation = useMutation({

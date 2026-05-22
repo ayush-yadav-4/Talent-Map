@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,7 +23,10 @@ async def market_signals(
     sector: str | None = Query(None, max_length=50),
     role: str | None = Query("", max_length=255),
     limit: int = Query(10, ge=3, le=25),
+    run_ai: bool = Query(default=False),
 ) -> dict:
+    if not run_ai:
+        raise HTTPException(status_code=400, detail="Set run_ai=true to generate market signals.")
     org_row = await db.execute(select(Organization.sector).where(Organization.id == current_user.org_id))
     org_sector = org_row.scalar_one_or_none()
     sec = normalize_sector(sector or org_sector)

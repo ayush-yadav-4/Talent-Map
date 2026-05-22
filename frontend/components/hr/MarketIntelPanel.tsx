@@ -39,7 +39,7 @@ export function MarketIntelPanel({ sector, roleHint, limit = 5, className }: Pro
       });
       return d as { sector: string; signals: MarketSignal[] };
     },
-    onError: () => toast.error("Could not load market signals — check Gemini API key."),
+    onError: () => toast.error("Could not load market signals — check OpenAI API key."),
   });
 
   const data = fetchMutation.data;

@@ -20,6 +20,7 @@ const nav = [
   { href: "/hr/skill-gaps", label: "Skill Gaps", icon: Target },
   { href: "/hr/hire-vs-upskill", label: "Hire vs Upskill", icon: Target },
   { href: "/hr/readiness", label: "Readiness & Mobility", icon: Target },
+  { href: "/hr/readiness/reports", label: "Readiness Reports", icon: Target },
   { href: "/hr/settings", label: "Settings", icon: Settings },
 ];
 

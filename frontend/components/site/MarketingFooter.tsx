@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Logo } from "@/components/site/Logo";
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
 
 export function MarketingFooter() {
   return (

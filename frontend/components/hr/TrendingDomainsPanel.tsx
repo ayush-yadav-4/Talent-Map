@@ -50,7 +50,7 @@ export function TrendingDomainsPanel({ sector, subSector, orgDomain, className }
         suggestions: TrendingDomainSuggestion[];
       };
     },
-    onError: () => toast.error("Could not load suggestions — check Gemini API key."),
+    onError: () => toast.error("Could not load suggestions — check OpenAI API key."),
   });
 
   const suggestions = suggestMutation.data?.suggestions ?? [];

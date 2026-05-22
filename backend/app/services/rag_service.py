@@ -15,8 +15,8 @@ _EMBEDDING_FALLBACKS = (
 
 
 def _embedding_model_candidates() -> list[str]:
-    primary = (settings.gemini_embedding_model or "models/gemini-embedding-001").strip()
-    candidates = [primary, *_EMBEDDING_FALLBACKS]
+    primary = (settings.openai_embedding_model or "text-embedding-3-small").strip()
+    candidates = [primary]
     seen: set[str] = set()
     ordered: list[str] = []
     for name in candidates:
@@ -27,14 +27,28 @@ def _embedding_model_candidates() -> list[str]:
 
 
 def _create_embeddings(api_key: str):
-    from langchain_google_genai import GoogleGenerativeAIEmbeddings
+    from langchain_openai import OpenAIEmbeddings, AzureOpenAIEmbeddings
+
+    if settings.azure_openai_endpoint and settings.azure_openai_api_key:
+        try:
+            embeddings = AzureOpenAIEmbeddings(
+                azure_deployment=settings.azure_openai_embedding_deployment or "text-embedding-3-small",
+                openai_api_version=settings.azure_openai_api_version,
+                azure_endpoint=settings.azure_openai_endpoint,
+                api_key=settings.azure_openai_api_key,
+            )
+            embeddings.embed_query("healthcheck")
+            logger.info("rag.embeddings.ready type=azure")
+            return embeddings
+        except Exception as exc:
+            raise RuntimeError(f"Azure embeddings failed: {exc}")
 
     last_error: Exception | None = None
     for model_name in _embedding_model_candidates():
         try:
-            embeddings = GoogleGenerativeAIEmbeddings(
+            embeddings = OpenAIEmbeddings(
                 model=model_name,
-                google_api_key=api_key,
+                openai_api_key=api_key,
             )
             # Probe once so bad model names fail at init, not on first chat.
             embeddings.embed_query("healthcheck")
@@ -57,14 +71,15 @@ class RAGService:
         self.employee_vector_store = None
         self.hr_vector_store = None
 
-        gemini_api_key = settings.gemini_api_key
-        if not gemini_api_key:
-            self.init_error = "Missing GEMINI_API_KEY; RAG context will be disabled."
+        is_azure = bool(settings.azure_openai_endpoint and settings.azure_openai_api_key)
+        openai_api_key = settings.openai_api_key
+        if not openai_api_key and not is_azure:
+            self.init_error = "Missing OPENAI_API_KEY or Azure credentials; RAG context will be disabled."
             logger.warning(self.init_error)
             return
 
         try:
-            from langchain_google_genai import GoogleGenerativeAIEmbeddings
+            from langchain_openai import OpenAIEmbeddings, AzureOpenAIEmbeddings
 
             # Support both legacy and current langchain-pinecone public APIs.
             try:
@@ -77,7 +92,7 @@ class RAGService:
             return
 
         try:
-            self.embeddings = _create_embeddings(gemini_api_key)
+            self.embeddings = _create_embeddings(openai_api_key)
 
             # Use namespaces in one index to isolate employee and HR corpora.
             pinecone_kwargs = {"pinecone_api_key": settings.pinecone_api_key}
@@ -98,6 +113,16 @@ class RAGService:
             self.init_error = f"Failed to initialize Pinecone vector stores: {exc}"
             logger.warning(self.init_error)
 
+    def _should_disable_after_error(self, exc: Exception) -> bool:
+        """Disable RAG when index/embedding config is fundamentally incompatible."""
+        msg = str(exc).lower()
+        return "vector dimension" in msg and "does not match" in msg
+
+    def _disable_rag(self, reason: str) -> None:
+        self.is_ready = False
+        self.init_error = reason
+        logger.warning("rag.disabled reason=%s", reason)
+
     async def ingest_employee_data(self, employee_id: str, content: str, metadata: Dict[str, Any] = None):
         """
         Stores employee-specific data in the Pinecone vector database.
@@ -110,8 +135,13 @@ class RAGService:
         metadata["employee_id"] = employee_id
         
         doc = Document(page_content=content, metadata=metadata)
-        # Use async add_documents if supported, or sync fallback
-        await self.employee_vector_store.aadd_documents([doc])
+        try:
+            # Use async add_documents if supported, or sync fallback
+            await self.employee_vector_store.aadd_documents([doc])
+        except Exception as exc:
+            logger.warning("rag.ingest_employee.failed employee_id=%s err=%s", employee_id, exc)
+            if self._should_disable_after_error(exc):
+                self._disable_rag("Pinecone index dimension mismatch with embedding model.")
         
     async def retrieve_employee_context(self, employee_id: str, query: str, k: int = 3) -> str:
         """
@@ -143,7 +173,12 @@ class RAGService:
         metadata["org_id"] = org_id
         
         doc = Document(page_content=content, metadata=metadata)
-        await self.hr_vector_store.aadd_documents([doc])
+        try:
+            await self.hr_vector_store.aadd_documents([doc])
+        except Exception as exc:
+            logger.warning("rag.ingest_hr.failed org_id=%s err=%s", org_id, exc)
+            if self._should_disable_after_error(exc):
+                self._disable_rag("Pinecone index dimension mismatch with embedding model.")
 
     async def retrieve_hr_context(self, org_id: str, query: str, k: int = 5) -> str:
         """

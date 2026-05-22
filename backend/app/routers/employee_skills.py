@@ -286,6 +286,7 @@ async def get_latest_sync_ai_insights(
 @router.get("/{employee_id}/analysis", response_model=dict)
 async def analyze_skills_and_suggest_assessments(
     employee_id: str,
+    run_ai: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -313,7 +314,9 @@ async def analyze_skills_and_suggest_assessments(
             "domain": skill.domain
         })
         
-    analysis = GeminiService.analyze_skill_profile(skills_data, emp.job_title or "Professional")
+    analysis = None
+    if run_ai:
+        analysis = GeminiService.analyze_skill_profile(skills_data, emp.job_title or "Professional")
     
     return {
         "analysis": analysis,

@@ -4,11 +4,11 @@ import { redirectToLogin } from "@/lib/auth";
 /**
  * Dev (browser): same-origin (`""`) → Next.js rewrites `/api/v1/*` to FastAPI (see next.config.mjs).
  * Production (browser): `NEXT_PUBLIC_API_URL` origin when set; else same-origin + rewrite.
- * SSR: `INTERNAL_API_URL` or http://127.0.0.1:8000
+ * SSR: `INTERNAL_API_URL` or http://127.0.0.1:8001
  */
 function resolveApiBaseUrl(): string {
   if (typeof window === "undefined") {
-    const internal = process.env.INTERNAL_API_URL || "http://127.0.0.1:8000";
+    const internal = process.env.INTERNAL_API_URL || "http://127.0.0.1:8001";
     return internal.replace(/\/+$/, "");
   }
   if (process.env.NODE_ENV === "development") {
@@ -248,7 +248,7 @@ export const orgApi = {
   updateProject: (orgId: string, projectId: string, body: ProjectPayload) =>
     api.put(`/api/v1/organizations/${orgId}/projects/${projectId}`, body),
   getProjectRecommendations: (orgId: string, projectId: string) =>
-    api.get(`/api/v1/organizations/${orgId}/projects/${projectId}/ai-recommendations`),
+    api.get(`/api/v1/organizations/${orgId}/projects/${projectId}/ai-recommendations`, { params: { run_ai: true } }),
   assignProjectMember: (orgId: string, projectId: string, body: ProjectAssignPayload) =>
     api.post(`/api/v1/organizations/${orgId}/projects/${projectId}/assignments`, body),
   removeProjectMember: (orgId: string, projectId: string, employeeId: string) =>
@@ -296,7 +296,9 @@ export const reportApi = {
   hrGapSummary: (deptId?: string) =>
     api.get("/api/v1/reports/hr/gap-summary", { params: deptId ? { dept_id: deptId } : {} }),
   hrPsychometricDistribution: () => api.get("/api/v1/reports/hr/psychometric-distribution"),
-  getReadinessScorecard: (employeeId: string) => api.get(`/api/v1/reports/hr/readiness/employee/${employeeId}`),
+  getReadinessScorecard: (employeeId: string) =>
+    api.get(`/api/v1/reports/hr/readiness/employee/${employeeId}`, { params: { run_ai: true } }),
+  getLatestReadinessReports: () => api.get("/api/v1/reports/hr/readiness/reports/latest"),
   employeeDashboard: (employeeId: string) => api.get(`/api/v1/reports/employee/dashboard-stats/${employeeId}`),
 };
 
@@ -320,15 +322,19 @@ export const agentApi = {
   },
   learning: {
     getPath: (skillName: string, currentProf = 1.0, targetProf = 4.0) => 
-      api.get(`/api/v1/agent/learning/path/${skillName}`, { params: { current_prof: currentProf, target_prof: targetProf } }),
+      api.get(`/api/v1/agent/learning/path/${skillName}`, {
+        params: { current_prof: currentProf, target_prof: targetProf, run_ai: true },
+      }),
     getCourses: (skillName: string, roleTitle: string) => 
-      api.get<{ gap_courses: any[]; upgrade_courses: any[] }>(`/api/v1/agent/learning/courses/${skillName}`, { params: { role_title: roleTitle } }),
+      api.get<{ gap_courses: any[]; upgrade_courses: any[] }>(`/api/v1/agent/learning/courses/${skillName}`, {
+        params: { role_title: roleTitle, run_ai: true },
+      }),
   },
   coach: {
     chat: (message: string, history: any[] = []) => api.post("/api/v1/agent/coach/chat", { message, history }),
   },
   marketSignals: (params?: { sector?: string; role?: string; limit?: number }) =>
-    api.get("/api/v1/agent/market-signals", { params }),
+    api.get("/api/v1/agent/market-signals", { params: { ...(params ?? {}), run_ai: true } }),
 };
 
 export const roadmapApi = {

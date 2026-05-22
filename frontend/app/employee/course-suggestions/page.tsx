@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BookOpenCheck, ExternalLink, Sparkles } from "lucide-react";
 import { employeeApi, reportApi, agentApi } from "@/lib/api";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { cn } from "@/lib/utils";
 import { cardSurfaceClass } from "@/lib/ui";
+import { Button } from "@/components/ui";
 
 type EmployeeProfilePayload = {
   employee: {
@@ -38,13 +39,15 @@ function SkillCourseCard({
   roleTitle,
   priority,
   reason,
-  isStrength
+  isStrength,
+  enabled,
 }: {
   skillName: string;
   roleTitle: string;
   priority?: "High" | "Medium";
   reason?: string;
   isStrength?: boolean;
+  enabled: boolean;
 }) {
   const { data: courses, isLoading } = useQuery({
     queryKey: ["agent-courses", skillName, roleTitle],
@@ -54,6 +57,7 @@ function SkillCourseCard({
     },
     staleTime: 1000 * 60 * 60, // 1 hour cache
     refetchOnWindowFocus: false,
+    enabled,
   });
 
   return (
@@ -82,7 +86,9 @@ function SkillCourseCard({
         )}
       </div>
 
-      {isLoading ? (
+      {!enabled ? (
+        <p className="mt-3 text-sm text-slate-500">Click "Load AI Course Suggestions" to fetch recommendations.</p>
+      ) : isLoading ? (
         <div className="mt-4 animate-pulse space-y-4">
           <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/4"></div>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -156,6 +162,7 @@ function SkillCourseCard({
 export default function EmployeeCourseSuggestionsPage() {
   const { ready, user } = useRequireAuth(["employee", "org_admin", "hr_manager"]);
   const employeeId = user?.employee_id;
+  const [shouldLoadCourses, setShouldLoadCourses] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["employee-course-suggestions", employeeId],
@@ -252,6 +259,18 @@ export default function EmployeeCourseSuggestionsPage() {
             <Sparkles className="h-5 w-5 text-brand-600 dark:text-tw-blue" />
           </div>
         </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Button
+            type="button"
+            className="bg-brand-600 hover:bg-brand-700 text-white"
+            onClick={() => setShouldLoadCourses(true)}
+          >
+            Load AI Course Suggestions
+          </Button>
+          <p className="text-xs text-slate-500 dark:text-tw-muted">
+            AI course calls are manual only and won&apos;t run on page refresh.
+          </p>
+        </div>
       </section>
 
       <section className={cn(cardSurfaceClass, "p-6 shadow-sm")}>
@@ -269,6 +288,7 @@ export default function EmployeeCourseSuggestionsPage() {
                 roleTitle={item.roleTitle}
                 priority={item.priority}
                 reason={item.reason}
+                enabled={shouldLoadCourses}
               />
             ))}
           </div>
@@ -297,6 +317,7 @@ export default function EmployeeCourseSuggestionsPage() {
                 roleTitle={item.roleTitle}
                 isStrength={true}
                 reason={`Strength score ${item.strengthScore.toFixed(2)} for ${item.roleTitle}. Use these courses to deepen expertise.`}
+                enabled={shouldLoadCourses}
               />
             ))}
           </div>

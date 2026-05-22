@@ -187,7 +187,7 @@ export default function AICoachPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 px-3 py-1 bg-slate-100 dark:bg-tw-raised rounded-full text-[10px] font-bold text-slate-500">
-            <Sparkles className="h-3 w-3 text-brand-500" /> POWERED BY GEMINI
+            <Sparkles className="h-3 w-3 text-brand-500" /> POWERED BY OPENAI
           </div>
         </div>
 

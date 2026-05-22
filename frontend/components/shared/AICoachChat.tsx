@@ -68,7 +68,7 @@ export function AICoachChat() {
           <Bot className="h-5 w-5" />
           <div>
             <p className="text-sm font-bold">TalentMap AI Coach</p>
-            {!isMinimized && <p className="text-[10px] opacity-80 flex items-center gap-1"><Sparkles className="h-2 w-2" /> Powered by Gemini</p>}
+            {!isMinimized && <p className="text-[10px] opacity-80 flex items-center gap-1"><Sparkles className="h-2 w-2" /> Powered by OpenAI</p>}
           </div>
         </div>
         <div className="flex items-center gap-1">

@@ -118,10 +118,10 @@ async def suggest_target_roles(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    if not (settings.gemini_api_key or "").strip():
+    if not (settings.openai_api_key or "").strip():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="GEMINI_API_KEY is required for role suggestions.",
+            detail="OPENAI_API_KEY is required for role suggestions.",
         )
 
     emp, org, current_skills, open_gaps = await _require_employee_context(db, current_user)
@@ -174,10 +174,10 @@ async def generate_skill_roadmap(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    if not (settings.gemini_api_key or "").strip():
+    if not (settings.openai_api_key or "").strip():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="GEMINI_API_KEY is required to generate a skill roadmap.",
+            detail="OPENAI_API_KEY is required to generate a skill roadmap.",
         )
 
     emp, org, current_skills, open_gaps = await _require_employee_context(db, current_user)

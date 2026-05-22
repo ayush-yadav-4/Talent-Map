@@ -5,22 +5,33 @@ import urllib.parse
 import warnings
 from typing import List, Dict, Any, Optional
 
-# Suppress legacy package deprecation at import; migrate to google.genai when we refactor.
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore", FutureWarning)
-    import google.generativeai as genai
-from pydantic import BaseModel, Field
+from openai import OpenAI, AzureOpenAI
+import os
+import google.generativeai as genai
 
 from app.config import settings
 
+client = None
+if settings.azure_openai_endpoint and settings.azure_openai_api_key:
+    client = AzureOpenAI(
+        api_key=settings.azure_openai_api_key,
+        api_version=settings.azure_openai_api_version,
+        azure_endpoint=settings.azure_openai_endpoint,
+    )
+elif (settings.openai_api_key or "").strip():
+    client = OpenAI(api_key=settings.openai_api_key)
+
+from pydantic import BaseModel, Field
+
 logger = logging.getLogger(__name__)
 
-if (settings.gemini_api_key or "").strip():
-    genai.configure(api_key=settings.gemini_api_key)
+
 
 # Helper for model fallback
-def get_model_name(default="gemini-1.5-flash"):
-    return settings.gemini_model or default
+def get_model_name(default="gpt-4o"):
+    if settings.azure_openai_deployment_name:
+        return settings.azure_openai_deployment_name
+    return settings.openai_model or default
 
 class MCQOption(BaseModel):
     id: str
@@ -253,6 +264,35 @@ class HireVsUpskillResult(BaseModel):
 
 
 class GeminiService:
+    @staticmethod
+    def _google_gemini_api_key() -> str:
+        return (settings.gemini_api_key or settings.google_api_key or "").strip()
+
+    @staticmethod
+    def _call_google_gemini_json(prompt: str, *, model_name: str | None = None) -> dict[str, Any]:
+        """
+        Call Google Gemini and return a parsed JSON object.
+        Used only for course suggestions and skill-gap analysis.
+        """
+        api_key = GeminiService._google_gemini_api_key()
+        if not api_key:
+            logger.warning("google_gemini.missing_key")
+            return {}
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel(model_name or settings.gemini_model or "gemini-1.5-flash")
+            response = model.generate_content(
+                prompt,
+                generation_config={
+                    "temperature": 0.2,
+                    "response_mime_type": "application/json",
+                },
+            )
+            return GeminiService._parse_llm_json(getattr(response, "text", "") or "")
+        except Exception as exc:
+            logger.exception("google_gemini.call_failed err=%s", exc)
+            return {}
+
     @staticmethod
     def _normalize_text(value: Any) -> str:
         if value is None:
@@ -631,12 +671,14 @@ class GeminiService:
             "summary": str(summary).strip(),
         }
 
+class AnalyzedSkillList(BaseModel):
+    skills: List[AnalyzedSkill]
+
     @staticmethod
     def extract_skills_from_resume(resume_text: str) -> List[AnalyzedSkill]:
         """
         Parses resume text and extracts a structured list of skills.
         """
-        model = genai.GenerativeModel(get_model_name())
         
         prompt = f"""
         Extract professional skills from the following resume text.
@@ -653,17 +695,16 @@ class GeminiService:
            - 5.0: Expert / Mastery
         4. Provide a brief sentence of evidence found in the resume for each skill.
         5. If the resume is empty or invalid, return an empty list.
+        6. You must wrap the list in a "skills" key.
         """
         
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=List[AnalyzedSkill]
-                )
+            response = client.beta.chat.completions.parse(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format=AnalyzedSkillList
             )
-            return json.loads(response.text)
+            return response.choices[0].message.parsed.skills
         except Exception as e:
             logger.error(f"Error extracting skills: {e}")
             return []
@@ -673,7 +714,6 @@ class GeminiService:
         """
         Analyzes the full skill set of an employee against their current role.
         """
-        model = genai.GenerativeModel(settings.gemini_model or 'gemini-1.5-flash')
         
         prompt = f"""
         Analyze the following skill profile for an employee with the role: {job_title}.
@@ -684,14 +724,12 @@ class GeminiService:
         """
         
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=ProfileAnalysis
-                )
+            response = client.beta.chat.completions.parse(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format=ProfileAnalysis
             )
-            return ProfileAnalysis.model_validate_json(response.text)
+            return response.choices[0].message.parsed
         except Exception as e:
             logger.error(f"Error analyzing profile: {e}")
             return None
@@ -707,7 +745,6 @@ class GeminiService:
         """
         Generates a structured question using Gemini.
         """
-        model = genai.GenerativeModel(settings.gemini_model or 'gemini-1.5-flash')
         
         prompt = f"""
         Generate a high-quality assessment question for the following skill:
@@ -730,14 +767,12 @@ class GeminiService:
         """
         
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=GeneratedQuestion
-                )
+            response = client.beta.chat.completions.parse(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format=GeneratedQuestion
             )
-            return GeneratedQuestion.model_validate_json(response.text)
+            return response.choices[0].message.parsed
         except Exception as e:
             logger.error(f"Error generating question: {e}")
             return None
@@ -751,7 +786,6 @@ class GeminiService:
         """
         Scores an open-text response using Gemini.
         """
-        model = genai.GenerativeModel(settings.gemini_model or 'gemini-1.5-flash')
         
         prompt = f"""
         Score the following employee response based on the question and rubric.
@@ -764,14 +798,12 @@ class GeminiService:
         """
         
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=OpenTextScoringResult
-                )
+            response = client.beta.chat.completions.parse(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format=OpenTextScoringResult
             )
-            return OpenTextScoringResult.model_validate_json(response.text)
+            return response.choices[0].message.parsed
         except Exception as e:
             logger.error(f"Error scoring response: {e}")
             return None
@@ -785,7 +817,6 @@ class GeminiService:
         """
         Simulates an employee response for IRT pre-calibration.
         """
-        model = genai.GenerativeModel(settings.gemini_model or 'gemini-1.5-flash')
         
         proficiency = ((ability_level + 3) / 6) * 4 + 1
         
@@ -800,8 +831,11 @@ class GeminiService:
         """
         
         try:
-            response = model.generate_content(prompt)
-            chosen_id = response.text.strip()
+            response = client.chat.completions.create(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}]
+            )
+            chosen_id = response.choices[0].message.content.strip()
             # Find the correct answer ID
             correct_id = next(opt['id'] for opt in options if opt.get('is_correct'))
             return 1 if chosen_id == correct_id else 0
@@ -813,7 +847,6 @@ class GeminiService:
         Extracts structured skills and summary from JD text.
         Tolerates partial/variant LLM JSON keys.
         """
-        model = genai.GenerativeModel(get_model_name())
         
         prompt = f"""
         Extract professional skills from the following Job Description text:
@@ -830,13 +863,13 @@ class GeminiService:
         """
         
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json"
-                )
+            response = client.chat.completions.create(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
             )
-            normalized = GeminiService._coerce_role_extraction_payload(response.text)
+            response_text = response.choices[0].message.content
+            normalized = GeminiService._coerce_role_extraction_payload(response_text)
             return RoleExtractionResult.model_validate(normalized)
         except Exception as e:
             logger.error(f"Error extracting JD skills: {e}")
@@ -853,18 +886,14 @@ class GeminiService:
         if not GeminiService._gemini_configured():
             return []
 
-        primary = (settings.gemini_embedding_model or "models/gemini-embedding-001").strip()
+        primary = (settings.openai_embedding_model or "models/gemini-embedding-001").strip()
         fallbacks = ["models/gemini-embedding-001", "models/gemini-embedding-2"]
         models_to_try = [primary] + [m for m in fallbacks if m != primary]
 
         for model_name in models_to_try:
             try:
-                result = genai.embed_content(
-                    model=model_name,
-                    content=text,
-                    task_type=task_type,
-                )
-                return result["embedding"]
+                result = client.embeddings.create(model=model_name, input=text).data[0].embedding
+                return result
             except Exception as e:
                 logger.warning("embedding.failed model=%s err=%s", model_name, e)
         logger.error("embedding.failed_all_models")
@@ -875,7 +904,6 @@ class GeminiService:
         """
         Generates a personalized learning path to bridge a skill gap.
         """
-        model = genai.GenerativeModel(settings.gemini_model or 'gemini-1.5-flash')
         
         prompt = f"""
         Create a personalized learning path for the skill: {skill_name}.
@@ -890,14 +918,12 @@ class GeminiService:
         """
         
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=LearningPath
-                )
+            response = client.beta.chat.completions.parse(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format=LearningPath
             )
-            return LearningPath.model_validate_json(response.text)
+            return response.choices[0].message.parsed
         except Exception as e:
             logger.error(f"Error generating learning path: {e}")
             return None
@@ -907,26 +933,33 @@ class GeminiService:
         """
         Suggests real-world courses for gap-closing and upgrading a specific skill.
         """
-        model = genai.GenerativeModel(settings.gemini_model or 'gemini-1.5-flash')
-        
-        prompt = f"Suggest 1 beginner course (gap_courses) and 1 advanced course (upgrade_courses) for {skill_name}."
-        
+
+        prompt = f"""
+You are an L&D learning assistant.
+Return JSON with keys: gap_courses, upgrade_courses.
+
+Context:
+- Skill: {skill_name}
+- Role title: {role_title}
+
+Rules:
+- gap_courses: 2 beginner/intermediate recommendations that help close current gaps.
+- upgrade_courses: 2 advanced recommendations for role growth.
+- Each course object must include: title, provider, level, url.
+- Use short practical titles and known providers where possible.
+- If uncertain about an exact landing page, use a valid provider search URL.
+"""
+
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=SkillCourseRecommendations
-                )
-            )
-            result = SkillCourseRecommendations.model_validate_json(response.text)
-            
+            payload = GeminiService._call_google_gemini_json(prompt)
+            result = SkillCourseRecommendations.model_validate(payload)
+
             # Post-process links to ensure they are valid search links rather than hallucinated URLs
             for course in result.gap_courses:
                 course.url = f"https://www.google.com/search?q={urllib.parse.quote(course.title + ' ' + course.provider + ' course')}"
             for course in result.upgrade_courses:
                 course.url = f"https://www.google.com/search?q={urllib.parse.quote(course.title + ' ' + course.provider + ' course')}"
-                
+
             return result
         except Exception as e:
             logger.error(f"Error suggesting courses for {skill_name}: {e}")
@@ -936,8 +969,7 @@ class GeminiService:
         """
         Compares an employee's skills against a Job Description's requirements.
         """
-        model = genai.GenerativeModel(get_model_name())
-        
+
         prompt = f"""
         Compare the following Employee Skills against the Job Description Requirements.
         
@@ -951,15 +983,21 @@ class GeminiService:
         4. Provide an overall 'Fit Score' (0-100%).
         5. Return a structured JSON response with: fit_score, strengths (list), gaps (list), and recommendations (list).
         """
-        
+
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json"
-                )
-            )
-            return json.loads(response.text)
+            payload = GeminiService._call_google_gemini_json(prompt)
+            fit_score_raw = payload.get("fit_score", 0)
+            try:
+                fit_score = float(fit_score_raw)
+            except Exception:
+                fit_score = 0.0
+            fit_score = max(0.0, min(100.0, fit_score))
+            return {
+                "fit_score": fit_score,
+                "strengths": GeminiService._as_str_list(payload.get("strengths")),
+                "gaps": GeminiService._as_str_list(payload.get("gaps")),
+                "recommendations": GeminiService._as_str_list(payload.get("recommendations")),
+            }
         except Exception as e:
             logger.error(f"Error in JD gap analysis: {e}")
             return {"error": "Could not complete analysis"}
@@ -969,7 +1007,6 @@ class GeminiService:
         """
         Generates a set of MCQ and scenario questions for a skill.
         """
-        model = genai.GenerativeModel(settings.gemini_model or 'gemini-1.5-flash')
         
         prompt = f"""
         Generate a technical assessment for the skill: {skill_name}.
@@ -984,14 +1021,12 @@ class GeminiService:
         """
         
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=SkillAssessment
-                )
+            response = client.beta.chat.completions.parse(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format=SkillAssessment
             )
-            return SkillAssessment.model_validate_json(response.text)
+            return response.choices[0].message.parsed
         except Exception as e:
             logger.error(f"Error generating assessment: {e}")
             return None
@@ -1001,7 +1036,6 @@ class GeminiService:
         """
         Predicts career growth milestones based on current skills.
         """
-        model = genai.GenerativeModel(settings.gemini_model or 'gemini-1.5-flash')
         
         prompt = f"""
         Predict the career trajectory for an employee with the following profile:
@@ -1017,21 +1051,19 @@ class GeminiService:
         """
         
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=CareerTrajectory
-                )
+            response = client.beta.chat.completions.parse(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format=CareerTrajectory
             )
-            return CareerTrajectory.model_validate_json(response.text)
+            return response.choices[0].message.parsed
         except Exception as e:
             logger.error(f"Error predicting trajectory: {e}")
             return None
 
     @staticmethod
     def _gemini_configured() -> bool:
-        return bool((settings.gemini_api_key or "").strip())
+        return bool((settings.openai_api_key or "").strip())
 
     @staticmethod
     def seed_skills_for_sector(sector: str, domains: List[str], count: int = 80) -> List[Dict[str, Any]]:
@@ -1041,7 +1073,6 @@ class GeminiService:
         if not GeminiService._gemini_configured():
             logger.warning("taxonomy.seed.skip_no_gemini_key")
             return []
-        model = genai.GenerativeModel(get_model_name())
         domain_list = ", ".join(domains)
         cap = min(max(count, 10), 120)
         prompt = f"""
@@ -1063,14 +1094,12 @@ Each skill object must have:
 No duplicates. Use professional HR-friendly language.
 """
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=TaxonomySeedEnvelope,
-                ),
+            response = client.beta.chat.completions.parse(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format=TaxonomySeedEnvelope,
             )
-            env = TaxonomySeedEnvelope.model_validate_json(response.text)
+            env = response.choices[0].message.parsed
             out: List[Dict[str, Any]] = []
             for s in env.skills[:cap]:
                 out.append(
@@ -1094,7 +1123,6 @@ No duplicates. Use professional HR-friendly language.
         """
         if not GeminiService._gemini_configured():
             return []
-        model = genai.GenerativeModel(get_model_name())
         lim = min(max(limit, 3), 25)
         prompt = f"""
 You summarize current labor-market skill demand for hiring and workforce planning.
@@ -1110,14 +1138,12 @@ Return JSON with key "signals": exactly {lim} objects, each:
 Base guidance on widely discussed 2024-2026 workforce trends; do not invent specific survey names or URLs.
 """
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=MarketSignalsEnvelope,
-                ),
+            response = client.beta.chat.completions.parse(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format=MarketSignalsEnvelope,
             )
-            env = MarketSignalsEnvelope.model_validate_json(response.text)
+            env = response.choices[0].message.parsed
             return [sig.model_dump() for sig in env.signals[:lim]]
         except Exception as e:
             logger.exception("market_signals.failed sector=%s err=%s", sector, e)
@@ -1137,8 +1163,6 @@ Base guidance on widely discussed 2024-2026 workforce trends; do not invent spec
         """
         if not GeminiService._gemini_configured():
             return []
-
-        model = genai.GenerativeModel(get_model_name())
         lim = min(max(limit, 3), 10)
         existing = ", ".join(existing_domains[:40]) if existing_domains else "(none yet)"
         presets = ", ".join(preset_domains[:20]) if preset_domains else "(sector defaults)"
@@ -1170,14 +1194,12 @@ Rules:
 - Keep names practical for HR workforce planning, not academic jargon.
 """
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=TrendingDomainsEnvelope,
-                ),
+            response = client.beta.chat.completions.parse(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format=TrendingDomainsEnvelope,
             )
-            env = TrendingDomainsEnvelope.model_validate_json(response.text)
+            env = response.choices[0].message.parsed
             out: List[Dict[str, Any]] = []
             for item in env.domains[:lim]:
                 out.append(
@@ -1203,9 +1225,8 @@ Rules:
             return {
                 "dominant_trait": "unknown",
                 "learning_style": "balanced",
-                "summary": "Configure GEMINI_API_KEY for AI-derived learning style.",
+                "summary": "Configure OPENAI_API_KEY for AI-derived learning style.",
             }
-        model = genai.GenerativeModel(get_model_name())
         prompt = f"""
 Assessment type: {assessment_type}
 Raw dimension scores (0-100 scale or similar): {json.dumps(scores)}
@@ -1218,14 +1239,12 @@ Return JSON matching schema:
 Use only the provided numbers; do not invent extra dimensions.
 """
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=LearningStyleResult,
-                ),
+            response = client.beta.chat.completions.parse(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format=LearningStyleResult,
             )
-            r = LearningStyleResult.model_validate_json(response.text)
+            r = response.choices[0].message.parsed
             return {
                 "dominant_trait": r.dominant_trait.strip(),
                 "learning_style": r.learning_style.strip(),
@@ -1245,8 +1264,6 @@ Use only the provided numbers; do not invent extra dimensions.
         """
         if not GeminiService._gemini_configured():
             return None
-            
-        model = genai.GenerativeModel(get_model_name())
         
         prompt = f"""
         Analyze the following Project Requirements and a list of Available Candidate Profiles to suggest the best team.
@@ -1271,14 +1288,12 @@ Use only the provided numbers; do not invent extra dimensions.
         """
         
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=TeamSuggestionResult
-                )
+            response = client.beta.chat.completions.parse(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format=TeamSuggestionResult
             )
-            return TeamSuggestionResult.model_validate_json(response.text)
+            return response.choices[0].message.parsed
         except Exception as e:
             logger.error(f"Error suggesting team members: {e}")
             return None
@@ -1290,8 +1305,6 @@ Use only the provided numbers; do not invent extra dimensions.
         """
         if not GeminiService._gemini_configured():
             return None
-            
-        model = genai.GenerativeModel(get_model_name())
         
         prompt = f"""
         Analyze the Career Readiness for the following employee:
@@ -1321,14 +1334,12 @@ Use only the provided numbers; do not invent extra dimensions.
         """
         
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=ReadinessScorecard
-                )
+            response = client.beta.chat.completions.parse(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format=ReadinessScorecard
             )
-            return ReadinessScorecard.model_validate_json(response.text)
+            return response.choices[0].message.parsed
         except Exception as e:
             logger.error(f"Error analyzing readiness scorecard: {e}")
             return None
@@ -1340,8 +1351,6 @@ Use only the provided numbers; do not invent extra dimensions.
         """
         if not GeminiService._gemini_configured():
             return None
-            
-        model = genai.GenerativeModel(get_model_name())
         
         prompt = f"""
         Generate a professional Individualized Development Plan (IDP) for the following employee:
@@ -1371,16 +1380,14 @@ Use only the provided numbers; do not invent extra dimensions.
         """
         
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=IDPResult
-                )
+            response = client.beta.chat.completions.parse(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format=IDPResult
             )
             
             # Clean response text in case of markdown wrapping
-            text = response.text.strip()
+            text = response.choices[0].message.content.strip()
             if text.startswith("```json"):
                 text = text.replace("```json", "", 1).replace("```", "", 1).strip()
             elif text.startswith("```"):
@@ -1390,7 +1397,7 @@ Use only the provided numbers; do not invent extra dimensions.
         except Exception as e:
             logger.error(f"Error generating IDP: {e}")
             if 'response' in locals():
-                logger.error(f"Raw response text: {response.text}")
+                logger.error(f"Raw response text: {response.choices[0].message.content}")
             return None
 
     @staticmethod
@@ -1405,8 +1412,6 @@ Use only the provided numbers; do not invent extra dimensions.
         """
         if not GeminiService._gemini_configured():
             return None
-            
-        model = genai.GenerativeModel(get_model_name())
         
         prompt = f"""
         Act as an HR Data Scientist. Analyze the decision to either UPSKILL an existing employee or HIRE a new candidate for a role.
@@ -1458,14 +1463,12 @@ Use only the provided numbers; do not invent extra dimensions.
         """
         
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=HireVsUpskillResult
-                )
+            response = client.beta.chat.completions.parse(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format=HireVsUpskillResult
             )
-            return HireVsUpskillResult.model_validate_json(response.text)
+            return response.choices[0].message.parsed
         except Exception as e:
             logger.error(f"Error analyzing hire vs upskill: {e}")
             return None
@@ -1481,8 +1484,6 @@ Use only the provided numbers; do not invent extra dimensions.
         """Suggest target roles based on skills, experience, and org domain."""
         if not GeminiService._gemini_configured():
             return None
-
-        model = genai.GenerativeModel(get_model_name())
         top_skills = current_skills[:25]
         prompt = f"""
 You are a career advisor for workforce upskilling. Suggest realistic next roles for ONE employee.
@@ -1519,11 +1520,13 @@ INSTRUCTIONS:
 """
         try:
             # JSON-only mode: Pydantic response_schema injects unsupported "default" keys in Gemini protos.
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(response_mime_type="application/json"),
+            response = client.chat.completions.create(
+                model=get_model_name(),
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
             )
-            normalized = GeminiService._coerce_role_suggestions_payload(response.text)
+            response_text = response.choices[0].message.content
+            normalized = GeminiService._coerce_role_suggestions_payload(response_text)
             env = RoleSuggestionsEnvelope.model_validate(normalized)
             return env.model_dump()
         except Exception as e:
@@ -1542,8 +1545,6 @@ INSTRUCTIONS:
         """Generate a phased upskilling roadmap toward a target role."""
         if not GeminiService._gemini_configured():
             return None
-
-        model = genai.GenerativeModel(get_model_name())
         prompt = f"""
 You are an L&D strategist. Build a detailed upskilling roadmap for ONE employee.
 
@@ -1584,11 +1585,13 @@ INSTRUCTIONS:
                         "\n\nYour previous response was invalid JSON. "
                         "Return a smaller, strictly valid JSON object with 4 phases only."
                     )
-                response = model.generate_content(
-                    attempt_prompt,
-                    generation_config=genai.GenerationConfig(response_mime_type="application/json"),
+                response = client.chat.completions.create(
+                    model=get_model_name(),
+                    messages=[{"role": "user", "content": attempt_prompt}],
+                    response_format={"type": "json_object"}
                 )
-                normalized = GeminiService._coerce_skill_roadmap_payload(response.text, target_role)
+                response_text = response.choices[0].message.content
+                normalized = GeminiService._coerce_skill_roadmap_payload(response_text, target_role)
                 try:
                     env = SkillRoadmapEnvelope.model_validate(normalized)
                     return env.model_dump()
@@ -1607,3 +1610,36 @@ INSTRUCTIONS:
             logger.exception("roadmap.generate.failed target=%s err=%s", target_role, e)
             return None
 
+
+# Backward-compatible method binding:
+# A prior refactor placed service methods under AnalyzedSkillList. Rebind them onto
+# GeminiService so router imports keep working without rewriting all call sites.
+_GEMINI_METHOD_ALIASES = (
+    "extract_skills_from_resume",
+    "analyze_skill_profile",
+    "generate_question",
+    "score_open_text",
+    "simulate_responses",
+    "extract_skills_from_jd",
+    "get_embedding",
+    "generate_learning_path",
+    "suggest_courses",
+    "analyze_gap_vs_jd",
+    "generate_assessment",
+    "predict_career_trajectory",
+    "_gemini_configured",
+    "seed_skills_for_sector",
+    "get_market_skill_demand",
+    "suggest_trending_domains",
+    "derive_learning_style",
+    "suggest_team_members",
+    "analyze_readiness_scorecard",
+    "generate_idp",
+    "analyze_hire_vs_upskill",
+    "suggest_career_roles",
+    "generate_skill_roadmap",
+)
+for _method_name in _GEMINI_METHOD_ALIASES:
+    _method = getattr(AnalyzedSkillList, _method_name, None)
+    if _method and not hasattr(GeminiService, _method_name):
+        setattr(GeminiService, _method_name, _method)

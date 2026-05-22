@@ -1,6 +1,6 @@
 import uuid
 from typing import List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,8 +17,11 @@ router = APIRouter()
 async def generate_skill_assessment(
     skill_name: str,
     proficiency: float = 2.0,
+    run_ai: bool = Query(default=False),
     current_user: User = Depends(get_current_user)
 ):
+    if not run_ai:
+        raise HTTPException(status_code=400, detail="Set run_ai=true to generate assessment.")
     assessment = GeminiService.generate_assessment(skill_name, proficiency)
     if not assessment:
         raise HTTPException(status_code=500, detail="Failed to generate assessment")
@@ -62,9 +65,12 @@ async def submit_assessment(
 
 @router.get("/trajectory", response_model=CareerTrajectory)
 async def get_career_trajectory(
+    run_ai: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    if not run_ai:
+        raise HTTPException(status_code=400, detail="Set run_ai=true to generate trajectory.")
     if not current_user.employee_id:
         raise HTTPException(status_code=400, detail="User not linked to an employee profile")
 

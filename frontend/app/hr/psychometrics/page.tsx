@@ -162,7 +162,7 @@ export default function HrPsychometricsPage() {
       <div className={cn(cardSurfaceClass, "p-4 shadow-sm")}>
         <h2 className="text-sm font-semibold text-slate-900 dark:text-tw-text">Record assessment (HR)</h2>
         <p className="mt-1 text-xs text-slate-500 dark:text-tw-muted">
-          Enter DISC dimension scores (0–100). Gemini derives learning style labels.
+          Enter DISC dimension scores (0–100). OpenAI derives learning style labels.
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
           <select

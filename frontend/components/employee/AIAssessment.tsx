@@ -17,7 +17,9 @@ export function AIAssessment({ skillName, proficiency, onClose }: { skillName: s
   const { isLoading: isGenerating } = useQuery({
     queryKey: ["generate-assessment", skillName],
     queryFn: async () => {
-      const { data } = await api.get(`/api/v1/agent/assessment/generate/${skillName}`, { params: { proficiency } });
+      const { data } = await api.get(`/api/v1/agent/assessment/generate/${skillName}`, {
+        params: { proficiency, run_ai: true },
+      });
       setAssessment(data);
       setCurrentStep("testing");
       return data;
@@ -52,7 +54,7 @@ export function AIAssessment({ skillName, proficiency, onClose }: { skillName: s
       <div className="p-12 text-center">
         <Loader2 className="h-10 w-10 text-brand-600 animate-spin mx-auto mb-4" />
         <h3 className="text-lg font-bold">Generating Assessment...</h3>
-        <p className="text-sm text-slate-500">Gemini is crafting questions for {skillName}.</p>
+        <p className="text-sm text-slate-500">OpenAI is crafting questions for {skillName}.</p>
       </div>
     );
   }

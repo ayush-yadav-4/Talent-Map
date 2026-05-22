@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { 
   Target, 
   TrendingUp, 
@@ -21,10 +21,12 @@ import { Button, Input } from "@/components/ui";
 import { employeeApi, reportApi, readStoredUser } from "@/lib/api";
 import { cardSurfaceClass } from "@/lib/ui";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 
 export default function ReadinessMobilityPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [analyzedEmployeeId, setAnalyzedEmployeeId] = useState<string | null>(null);
 
   const { data: employees, isLoading: isLoadingEmployees } = useQuery({
     queryKey: ["hr-readiness-employees"],
@@ -34,15 +36,15 @@ export default function ReadinessMobilityPage() {
     }
   });
 
-  const { data: scorecard, isLoading: isLoadingScorecard, error: scorecardError } = useQuery({
-    queryKey: ["readiness-scorecard", selectedEmployeeId],
-    queryFn: async () => {
-      if (!selectedEmployeeId) return null;
-      const { data } = await reportApi.getReadinessScorecard(selectedEmployeeId);
+  const readinessMutation = useMutation({
+    mutationFn: async (employeeId: string) => {
+      const { data } = await reportApi.getReadinessScorecard(employeeId);
       return data as any;
     },
-    enabled: !!selectedEmployeeId,
-    retry: false
+    onSuccess: (_data, employeeId) => {
+      setAnalyzedEmployeeId(employeeId);
+    },
+    retry: false,
   });
 
   const filteredEmployees = employees?.filter(emp => 
@@ -51,6 +53,9 @@ export default function ReadinessMobilityPage() {
   );
 
   const selectedEmployee = employees?.find(emp => emp.id === selectedEmployeeId);
+  const scorecard = readinessMutation.data;
+  const isLoadingScorecard = readinessMutation.isPending;
+  const scorecardError = readinessMutation.error;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -63,6 +68,9 @@ export default function ReadinessMobilityPage() {
             AI-driven readiness scorecards for succession planning and internal mobility.
           </p>
         </div>
+        <Link href="/hr/readiness/reports">
+          <Button variant="outline">View Saved Reports</Button>
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -91,7 +99,12 @@ export default function ReadinessMobilityPage() {
                 filteredEmployees?.map((emp) => (
                   <button
                     key={emp.id}
-                    onClick={() => setSelectedEmployeeId(emp.id)}
+                    onClick={() => {
+                      setSelectedEmployeeId(emp.id);
+                      if (analyzedEmployeeId !== emp.id) {
+                        readinessMutation.reset();
+                      }
+                    }}
                     className={cn(
                       "w-full p-4 flex items-center gap-3 transition-all border-b border-slate-50 dark:border-tw-border/50 hover:bg-slate-50 dark:hover:bg-tw-raised text-left",
                       selectedEmployeeId === emp.id ? "bg-brand-50/80 dark:bg-brand-900/20 border-l-4 border-l-brand-600" : ""
@@ -132,7 +145,7 @@ export default function ReadinessMobilityPage() {
               </div>
               <h3 className="text-lg font-bold text-slate-900 dark:text-tw-text mb-2">Analyzing Readiness...</h3>
               <p className="text-sm text-slate-500 dark:text-tw-muted animate-pulse">
-                Gemini is evaluating skills, experience, and mobility paths for {selectedEmployee?.full_name}
+                AI is evaluating skills, experience, and mobility paths for {selectedEmployee?.full_name}
               </p>
             </div>
           ) : scorecardError ? (
@@ -140,7 +153,28 @@ export default function ReadinessMobilityPage() {
               <AlertCircle className="h-12 w-12 mb-4" />
               <h3 className="text-lg font-bold mb-2">Analysis Failed</h3>
               <p className="text-sm opacity-80">Could not generate readiness scorecard at this time.</p>
-              <Button variant="outline" className="mt-4" onClick={() => setSelectedEmployeeId(selectedEmployeeId)}>Retry</Button>
+              <Button
+                variant="outline"
+                className="mt-4"
+                onClick={() => selectedEmployeeId && readinessMutation.mutate(selectedEmployeeId)}
+              >
+                Retry
+              </Button>
+            </div>
+          ) : !scorecard ? (
+            <div className={cn(cardSurfaceClass, "flex flex-col items-center justify-center p-12 text-center min-h-[500px]")}>
+              <Sparkles className="h-10 w-10 text-brand-500 mb-4" />
+              <h3 className="text-lg font-bold text-slate-900 dark:text-tw-text mb-2">Ready to Analyze</h3>
+              <p className="text-sm text-slate-500 dark:text-tw-muted max-w-md">
+                No automatic AI run on page refresh. Click the button below to generate this employee's readiness and mobility scorecard.
+              </p>
+              <Button
+                className="mt-5 bg-brand-600 hover:bg-brand-700 text-white"
+                onClick={() => selectedEmployeeId && readinessMutation.mutate(selectedEmployeeId)}
+                disabled={!selectedEmployeeId || readinessMutation.isPending}
+              >
+                Generate Readiness Scorecard
+              </Button>
             </div>
           ) : scorecard && (
             <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-700">
