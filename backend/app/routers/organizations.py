@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlencode
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -855,9 +855,12 @@ async def remove_project_member(
 async def get_project_team_recommendations(
     org_id: str,
     project_id: str,
+    run_ai: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles("org_admin", "hr_manager")),
 ) -> dict:
+    if not run_ai:
+        raise HTTPException(status_code=400, detail="Set run_ai=true to generate team recommendations.")
     org_uuid = _parse_org_id(org_id)
     _ensure_org_access(org_uuid, current_user)
     project_uuid = _parse_uuid_or_422(project_id, "project id")

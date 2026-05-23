@@ -41,12 +41,27 @@ class Settings(BaseSettings):
     app_login_url: str = "http://localhost:3001/login"
 
     sentry_dsn: Optional[str] = None
+    openai_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENAI_API_KEY"),
+    )
+    openai_model: str = "gpt-4o"
+    openai_embedding_model: str = "text-embedding-3-small"
     gemini_api_key: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+        validation_alias=AliasChoices("GEMINI_API_KEY"),
     )
-    gemini_model: str = "gemini-1.5-flash-latest"
-    gemini_embedding_model: str = "models/gemini-embedding-001"
+    google_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_API_KEY"),
+    )
+    gemini_model: str = "gemini-1.5-flash"
+
+    azure_openai_endpoint: Optional[str] = None
+    azure_openai_api_key: Optional[str] = None
+    azure_openai_api_version: str = "2024-02-01"
+    azure_openai_embedding_deployment: Optional[str] = None
+    azure_openai_deployment_name: Optional[str] = None
     mongodb_url: Optional[str] = None
 
     pinecone_api_key: Optional[str] = None

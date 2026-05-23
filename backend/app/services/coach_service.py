@@ -2,10 +2,13 @@ from typing import Annotated, List, Dict, Any
 from typing_extensions import TypedDict
 
 from fastapi import HTTPException
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from app.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CoachState(TypedDict):
@@ -83,19 +86,33 @@ def build_coach_system_prompt(
     )
 
 class CoachService:
-    """AI Coach; LLM is loaded only when GEMINI_API_KEY / GOOGLE_API_KEY is set."""
+    """AI Coach backed by OpenAI-compatible chat models."""
 
     def __init__(self) -> None:
         self.llm = None
         self.graph = None
-        key = (settings.gemini_api_key or "").strip()
-        if not key:
-            return
-        self.llm = ChatGoogleGenerativeAI(
-            model=settings.gemini_model or "gemini-1.5-flash",
-            google_api_key=key,
-            temperature=0.7,
-        )
+        model_name = (settings.openai_model or "gpt-4o").strip() or "gpt-4o"
+        if model_name.lower().startswith("gemini"):
+            logger.warning("coach.model.invalid_openai_model model=%s fallback=gpt-4o", model_name)
+            model_name = "gpt-4o"
+
+        if settings.azure_openai_endpoint and settings.azure_openai_api_key:
+            self.llm = AzureChatOpenAI(
+                azure_deployment=settings.azure_openai_deployment_name or model_name,
+                openai_api_version=settings.azure_openai_api_version,
+                azure_endpoint=settings.azure_openai_endpoint,
+                api_key=settings.azure_openai_api_key,
+                temperature=0.7,
+            )
+        else:
+            key = (settings.openai_api_key or "").strip()
+            if not key:
+                return
+            self.llm = ChatOpenAI(
+                model=model_name,
+                api_key=key,
+                temperature=0.7,
+            )
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -132,8 +149,8 @@ class CoachService:
             raise HTTPException(
                 status_code=503,
                 detail=(
-                    "AI Coach requires a Gemini API key. Add GEMINI_API_KEY or GOOGLE_API_KEY "
-                    "to backend/.env (create a key at https://aistudio.google.com/apikey)."
+                    "AI Coach requires OpenAI credentials. Set OPENAI_API_KEY (or Azure OpenAI settings) "
+                    "in backend/.env."
                 ),
             )
         state = {

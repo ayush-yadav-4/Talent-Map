@@ -157,10 +157,10 @@ async def suggest_trending_domains(
     limit: int = Query(6, ge=3, le=10),
 ) -> dict[str, Any]:
     """On-demand LLM: trending skill domains scoped to the organization's sector and focus."""
-    if not (settings.gemini_api_key or "").strip():
+    if not (settings.openai_api_key or "").strip():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="GEMINI_API_KEY is required for domain suggestions.",
+            detail="OPENAI_API_KEY is required for domain suggestions.",
         )
 
     org_row = await db.execute(
@@ -213,10 +213,10 @@ async def seed_taxonomy(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles("org_admin", "hr_manager")),
 ) -> dict[str, Any]:
-    if not (settings.gemini_api_key or "").strip():
+    if not (settings.openai_api_key or "").strip():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="GEMINI_API_KEY is required to seed skills.",
+            detail="OPENAI_API_KEY is required to seed skills.",
         )
 
     org_row = await db.execute(select(Organization.sector).where(Organization.id == current_user.org_id))

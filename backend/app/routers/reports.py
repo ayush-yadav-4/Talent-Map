@@ -6,7 +6,7 @@ from typing import Any
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +20,8 @@ from app.models.user import User
 from app.models.job_description import JDGapAnalysis
 from app.schemas.gap import DashboardStats
 from app.services.gemini_service import GeminiService
+from app.services.readiness_report_store import readiness_report_store
+from app.config import settings
 
 router = APIRouter()
 
@@ -566,9 +568,12 @@ async def get_employee_dashboard_stats(
 @router.get("/hr/readiness/employee/{employee_id}", response_model=dict)
 async def get_employee_readiness_scorecard(
     employee_id: str,
+    run_ai: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles("org_admin", "hr_manager", "manager")),
 ) -> dict:
+    if not run_ai:
+        raise HTTPException(status_code=400, detail="Set run_ai=true to generate readiness scorecard.")
     try:
         eid = UUID(employee_id)
     except ValueError as exc:
@@ -652,4 +657,63 @@ async def get_employee_readiness_scorecard(
     if not analysis:
         raise HTTPException(status_code=500, detail="AI analysis failed")
 
-    return analysis.model_dump()
+    model_used = settings.azure_openai_deployment_name or settings.openai_model or "gpt-4o"
+    result = analysis.model_dump()
+    result["model_used"] = model_used
+    result["generated_at"] = datetime.now(timezone.utc).isoformat()
+
+    await readiness_report_store.save_latest(
+        employee_id=str(eid),
+        org_id=str(current_user.org_id),
+        payload={
+            "employee": {
+                "id": str(eid),
+                "full_name": emp.full_name,
+                "job_title": emp.job_title,
+                "seniority_level": emp.seniority_level,
+            },
+            "report": result,
+        },
+    )
+    return result
+
+
+@router.get("/hr/readiness/reports/latest")
+async def list_latest_readiness_reports(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("org_admin", "hr_manager", "manager")),
+) -> dict[str, Any]:
+    """List latest saved readiness report for each employee in the organization."""
+    employees_res = await db.execute(
+        select(Employee.id, Employee.full_name, Employee.job_title, Employee.seniority_level)
+        .where(Employee.org_id == current_user.org_id, Employee.is_active.is_(True))
+        .order_by(Employee.full_name.asc())
+    )
+    employees = [
+        {
+            "employee_id": str(row.id),
+            "full_name": row.full_name,
+            "job_title": row.job_title,
+            "seniority_level": row.seniority_level,
+        }
+        for row in employees_res.all()
+    ]
+
+    reports = await readiness_report_store.get_org_latest(str(current_user.org_id))
+    report_map = {item.get("employee_id"): item for item in reports}
+
+    items: list[dict[str, Any]] = []
+    for emp in employees:
+        saved = report_map.get(emp["employee_id"])
+        payload = (saved or {}).get("payload") or {}
+        report = payload.get("report")
+        items.append(
+            {
+                "employee": emp,
+                "has_report": bool(report),
+                "updated_at": (saved or {}).get("updated_at"),
+                "report": report,
+            }
+        )
+
+    return {"items": items, "total_employees": len(items)}
