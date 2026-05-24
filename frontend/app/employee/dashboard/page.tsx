@@ -8,6 +8,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { cardSurfaceClass } from "@/lib/ui";
 import { LearningJourney } from "@/components/employee/LearningJourney";
 import { CareerTrajectory } from "@/components/employee/CareerTrajectory";
+import { SkillJourneyTracker } from "@/components/employee/SkillJourneyTracker";
 import { cn, toRenderableText } from "@/lib/utils";
 import { Sparkles, RefreshCw, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -219,6 +220,8 @@ export default function EmployeeDashboardPage() {
       </div>
 
       <LearningJourney topGaps={topGaps} />
+
+      <SkillJourneyTracker />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <section className={cn(cardSurfaceClass, "p-5 shadow-sm")}>

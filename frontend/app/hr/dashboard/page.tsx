@@ -11,13 +11,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { MarketIntelPanel } from "@/components/hr/MarketIntelPanel";
 import { MatchingDashboard } from "@/components/hr/MatchingDashboard";
 import { RoleIntelligenceAgent } from "@/components/hr/RoleIntelligenceAgent";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { cardSurfaceClass } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import { orgApi, readStoredUser, reportApi } from "@/lib/api";
+import { readStoredUser, reportApi } from "@/lib/api";
 
 type TopSkillGap = {
   skill_name?: string;
@@ -67,14 +66,6 @@ export default function HrDashboardPage() {
       return d as HrDashboard;
     },
     enabled: ready,
-  });
-  const { data: org } = useQuery({
-    queryKey: ["hr-dashboard-org", orgId],
-    queryFn: async () => {
-      const { data: o } = await orgApi.get(orgId ?? "");
-      return o as { sector?: string; name?: string };
-    },
-    enabled: ready && Boolean(orgId),
   });
   const { data: employees } = useQuery({
     queryKey: ["dashboard-employees"],
@@ -222,8 +213,6 @@ export default function HrDashboardPage() {
             <p className="mt-4 text-xs text-slate-500 dark:text-tw-muted">No aggregated gaps yet — add role requirements and evidence.</p>
           )}
         </div>
-
-        <MarketIntelPanel sector={org?.sector} roleHint="Organization workforce" limit={5} />
 
         <div className={cn(cardSurfaceClass, "p-4 shadow-sm")}>
           <h2 className="text-sm font-semibold text-slate-900 dark:text-tw-text">Certification board</h2>

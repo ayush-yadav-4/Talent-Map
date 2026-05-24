@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Building2, LayoutDashboard, LineChart, LogOut, Settings, Target, Users } from "lucide-react";
+import { Building2, LayoutDashboard, LineChart, LogOut, Settings, Target, TrendingUp, Users } from "lucide-react";
 import { AuthLoading } from "@/components/auth/AuthLoading";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { HR_ROLES } from "@/lib/auth";
@@ -17,6 +17,7 @@ const nav = [
   { href: "/hr/projects", label: "Projects", icon: Building2 },
   { href: "/hr/job-descriptions", label: "Job Descriptions", icon: Building2 },
   { href: "/hr/skill-intelligence", label: "Skill Intelligence", icon: LineChart },
+  { href: "/hr/market-intelligence", label: "Market Intelligence", icon: TrendingUp },
   { href: "/hr/skill-gaps", label: "Skill Gaps", icon: Target },
   { href: "/hr/hire-vs-upskill", label: "Hire vs Upskill", icon: Target },
   { href: "/hr/readiness", label: "Readiness & Mobility", icon: Target },

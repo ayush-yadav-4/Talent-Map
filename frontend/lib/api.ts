@@ -342,12 +342,44 @@ export const roadmapApi = {
   generate: (body: { target_role: string }) => api.post("/api/v1/roadmap/generate", body),
 };
 
+export type DevelopmentMilestone = {
+  id: string;
+  title: string;
+  description?: string | null;
+  target_skills?: string[];
+  learning_resources?: { title?: string; url?: string; type?: string }[];
+  check_in_focus?: string | null;
+  due_date: string;
+  status: "pending" | "in_progress" | "completed" | "missed";
+  outcome_score?: number | null;
+  completion_notes?: string | null;
+  completed_at?: string | null;
+};
+
+export type DevelopmentPlan = {
+  id: string;
+  employee_id: string;
+  org_id: string;
+  title: string;
+  description?: string | null;
+  target_role?: string | null;
+  status: "active" | "completed" | "archived";
+  created_at: string;
+  updated_at: string;
+  milestones: DevelopmentMilestone[];
+};
+
 export const developmentApi = {
   generateIdp: (targetRole?: string) => api.post("/api/v1/development/generate", { target_role: targetRole }),
-  listPlans: () => api.get("/api/v1/development/plans"),
-  getPlan: (id: string) => api.get(`/api/v1/development/plans/${id}`),
+  generateJourney: (targetRole?: string) => api.post<{ used_cached_plan: boolean; message: string; summary?: string; plan: DevelopmentPlan }>(
+    "/api/v1/development/journey",
+    { target_role: targetRole },
+  ),
+  listPlans: () => api.get<DevelopmentPlan[]>("/api/v1/development/plans"),
+  getPlan: (id: string) => api.get<DevelopmentPlan>(`/api/v1/development/plans/${id}`),
   createPlan: (body: any) => api.post("/api/v1/development/plans", body),
-  updateMilestone: (id: string, body: any) => api.patch(`/api/v1/development/milestones/${id}`, body),
+  updateMilestone: (id: string, body: { status?: string; outcome_score?: number; completion_notes?: string }) =>
+    api.patch(`/api/v1/development/milestones/${id}`, body),
 };
 
 export function persistAuth(tokens: TokenResponse) {

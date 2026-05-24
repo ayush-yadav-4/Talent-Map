@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func, and_
+from sqlalchemy.orm import selectinload
 from typing import List
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from app.database import get_db
 from app.deps import get_current_user
@@ -21,6 +22,29 @@ from app.schemas.development import (
 from app.services.gemini_service import GeminiService
 
 router = APIRouter()
+
+
+def _normalize_target_role(raw_target_role: str | None, current_job_title: str | None) -> str:
+    if raw_target_role and raw_target_role.strip():
+        return raw_target_role.strip()
+    if current_job_title and current_job_title.strip():
+        return current_job_title.strip()
+    return "Growth in current role"
+
+
+def _to_milestone_due_date(relative_days: int) -> date:
+    safe_days = max(7, int(relative_days or 30))
+    return date.today() + timedelta(days=safe_days)
+
+
+def _serialize_learning_resources(resources: list) -> list[dict]:
+    serialized: list[dict] = []
+    for resource in resources or []:
+        if hasattr(resource, "model_dump"):
+            serialized.append(resource.model_dump())
+        elif isinstance(resource, dict):
+            serialized.append(resource)
+    return serialized
 
 @router.post("/generate", response_model=dict)
 async def generate_idp_endpoint(
@@ -121,6 +145,150 @@ async def generate_idp_endpoint(
 
     return idp.model_dump()
 
+
+@router.post("/journey", response_model=dict)
+async def generate_or_get_journey_plan(
+    payload: IDPGenerateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if not current_user.employee_id:
+        raise HTTPException(status_code=400, detail="User is not an employee")
+
+    emp_res = await db.execute(select(Employee).where(Employee.id == current_user.employee_id))
+    emp = emp_res.scalar_one_or_none()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee profile not found")
+
+    normalized_target_role = _normalize_target_role(payload.target_role, emp.job_title)
+
+    # Reuse existing active plan for same target role to save repeated LLM calls.
+    existing_plan_res = await db.execute(
+        select(DevelopmentPlan)
+        .options(selectinload(DevelopmentPlan.milestones))
+        .where(
+            DevelopmentPlan.employee_id == current_user.employee_id,
+            DevelopmentPlan.status == "active",
+            func.lower(func.coalesce(DevelopmentPlan.target_role, "")) == normalized_target_role.lower(),
+        )
+        .order_by(DevelopmentPlan.updated_at.desc())
+    )
+    existing_plan = existing_plan_res.scalars().first()
+    if existing_plan:
+        return {
+            "used_cached_plan": True,
+            "message": "Loaded existing saved roadmap for this target role.",
+            "plan": existing_plan,
+        }
+
+    # 1. Get Current Skills
+    skills_res = await db.execute(
+        select(EmployeeSkillScore, Skill)
+        .join(Skill, EmployeeSkillScore.skill_id == Skill.id)
+        .where(EmployeeSkillScore.employee_id == current_user.employee_id)
+    )
+    current_skills = [
+        {"skill_name": skill.canonical_name, "proficiency": score.proficiency_score}
+        for score, skill in skills_res.all()
+    ]
+
+    # 2. Get Existing Skill Gaps
+    gaps_res = await db.execute(
+        select(SkillGap, Skill)
+        .join(Skill, SkillGap.skill_id == Skill.id)
+        .where(SkillGap.employee_id == current_user.employee_id, SkillGap.status == "open")
+    )
+    gaps_data = [
+        {"skill_name": skill.canonical_name, "gap_magnitude": gap.gap_magnitude, "source": "official_assessment"}
+        for gap, skill in gaps_res.all()
+    ]
+
+    # 3. Include AI-inferred JD gap skills (if available) for richer personalization.
+    jd_gaps_res = await db.execute(
+        select(JDGapAnalysis)
+        .where(JDGapAnalysis.employee_id == current_user.employee_id)
+        .order_by(JDGapAnalysis.created_at.desc())
+        .limit(3)
+    )
+    for jd_gap in jd_gaps_res.scalars().all():
+        res = jd_gap.analysis_results or {}
+        gaps = res.get("gaps") or []
+        for g in gaps:
+            name = g if isinstance(g, str) else g.get("skill_name")
+            if name and not any(dg["skill_name"] == name for dg in gaps_data):
+                gaps_data.append(
+                    {
+                        "skill_name": name,
+                        "gap_magnitude": 1.0,
+                        "source": "jd_analysis",
+                        "details": g if isinstance(g, dict) else None,
+                    }
+                )
+
+    if not gaps_data and not current_skills:
+        raise HTTPException(
+            status_code=422,
+            detail="No skills or gaps found to generate a roadmap. Please add skills or complete an assessment first.",
+        )
+
+    # 4. Build employee persona context for better personalized roadmap.
+    employee_data = {
+        "full_name": emp.full_name,
+        "job_title": emp.job_title,
+        "seniority_level": emp.seniority_level,
+        "years_of_experience": emp.years_of_experience,
+        "highest_qualification": emp.highest_qualification,
+        "field_of_study": emp.field_of_study,
+        "clinical_specialization": emp.clinical_specialization,
+        "grade_band": emp.grade_band,
+        "project_status": emp.project_status,
+        "current_skills": current_skills,
+    }
+
+    idp = GeminiService.generate_idp(employee_data, gaps_data, normalized_target_role)
+    if not idp:
+        raise HTTPException(status_code=500, detail="AI failed to generate development plan")
+
+    plan = DevelopmentPlan(
+        employee_id=current_user.employee_id,
+        org_id=current_user.org_id,
+        title=idp.title,
+        description=idp.description,
+        target_role=idp.target_role or normalized_target_role,
+        status="active",
+    )
+    db.add(plan)
+    await db.flush()
+
+    for milestone_payload in idp.milestones:
+        milestone = DevelopmentMilestone(
+            plan_id=plan.id,
+            title=milestone_payload.title,
+            description=milestone_payload.description,
+            target_skills=milestone_payload.target_skills,
+            learning_resources=_serialize_learning_resources(milestone_payload.learning_resources),
+            due_date=_to_milestone_due_date(milestone_payload.due_date_relative_days),
+            check_in_focus=milestone_payload.check_in_focus,
+            status="pending",
+        )
+        db.add(milestone)
+
+    await db.commit()
+
+    saved_plan_res = await db.execute(
+        select(DevelopmentPlan)
+        .options(selectinload(DevelopmentPlan.milestones))
+        .where(DevelopmentPlan.id == plan.id)
+    )
+    saved_plan = saved_plan_res.scalar_one()
+
+    return {
+        "used_cached_plan": False,
+        "message": "Created and saved a new personalized roadmap.",
+        "plan": saved_plan,
+        "summary": idp.summary,
+    }
+
 @router.post("/plans", response_model=DevelopmentPlanResponse)
 async def create_development_plan(
     payload: DevelopmentPlanCreate,
@@ -166,6 +334,7 @@ async def list_my_plans(
         
     res = await db.execute(
         select(DevelopmentPlan)
+        .options(selectinload(DevelopmentPlan.milestones))
         .where(DevelopmentPlan.employee_id == current_user.employee_id)
         .order_by(DevelopmentPlan.created_at.desc())
     )
@@ -178,7 +347,9 @@ async def get_plan_details(
     current_user: User = Depends(get_current_user)
 ):
     res = await db.execute(
-        select(DevelopmentPlan).where(DevelopmentPlan.id == plan_id)
+        select(DevelopmentPlan)
+        .options(selectinload(DevelopmentPlan.milestones))
+        .where(DevelopmentPlan.id == plan_id)
     )
     plan = res.scalar_one_or_none()
     if not plan:
