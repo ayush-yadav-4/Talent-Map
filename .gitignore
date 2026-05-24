@@ -41,3 +41,5 @@ backend/data/*_skills.json
 
 # Logs
 *.log
+
+backend.zip
